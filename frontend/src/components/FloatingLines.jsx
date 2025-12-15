@@ -364,6 +364,8 @@ export default function FloatingLines({
 
     const setSize = () => {
       const el = containerRef.current;
+      if (!el) return; // Add safety check
+      
       const width = el.clientWidth || 1;
       const height = el.clientHeight || 1;
 
@@ -376,7 +378,11 @@ export default function FloatingLines({
 
     setSize();
 
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(setSize) : null;
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
+      if (containerRef.current) { // Add safety check
+        setSize();
+      }
+    }) : null;
 
     if (ro && containerRef.current) {
       ro.observe(containerRef.current);
