@@ -1,0 +1,129 @@
+/* Floating Capsule Navbar */
+.floatingNavbar {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 90%;
+  max-width: 900px;
+}
+
+.navContent {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 50px;
+  padding: 0.75rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.3s ease;
+}
+
+.navContent:hover {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+.navHeader h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  margin: 0;
+  background: linear-gradient(135deg, #8B0000 0%, #600000 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.navlist {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.navlist p {
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  padding: 0.5rem 1rem;
+  border-radius: 25px;
+  margin: 0;
+  color: #2d3748;
+  font-size: 0.95rem;
+}
+
+.navlist p:hover {
+  background: rgba(139, 0, 0, 0.1);
+  color: #8B0000;
+}
+
+.navlist .loginButton {
+  background: linear-gradient(135deg, #8B0000 0%, #600000 100%);
+  color: white;
+  padding: 0.6rem 1.5rem;
+  border-radius: 25px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.navlist .loginButton:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(139, 0, 0, 0.3);
+}
+
+.navlist .loginButton p {
+  color: white;
+  padding: 0;
+  margin: 0;
+  font-weight: 600;
+}
+
+.navlist .loginButton:hover p {
+  background: transparent;
+  color: white;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .floatingNavbar {
+    width: 95%;
+    top: 15px;
+  }
+  
+  .navContent {
+    padding: 0.6rem 1.5rem;
+  }
+  
+  .navHeader h2 {
+    font-size: 1.3rem;
+  }
+  
+  .navlist {
+    gap: 1rem;
+  }
+  
+  .navlist p {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.8rem;
+  }
+  
+  .navlist .loginButton {
+    padding: 0.5rem 1.2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .navContent {
+    padding: 0.5rem 1rem;
+  }
+  
+  .navlist p:not(.loginButton p) {
+    display: none;
+  }
+  
+  .navlist .loginButton {
+    padding: 0.5rem 1rem;
+  }
+}
