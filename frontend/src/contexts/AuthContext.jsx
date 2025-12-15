@@ -1,26 +1,22 @@
 import axios from "axios";
 import httpStatus from "http-status";
-import { createContext, useContext, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { createContext, useContext, useState, useMemo } from "react";
+// Removed useNavigate to prevent crash if AuthProvider is outside Router
 import server from "../environment";
 
-
-export const AuthContext = createContext({});
+export const AuthContext = createContext(null);
 
 const client = axios.create({
     baseURL: `${server}/api/v1/users`
 })
 
-
 export const AuthProvider = ({ children }) => {
-
-    const authContext = useContext(AuthContext);
-
-
-    const [userData, setUserData] = useState(authContext);
-
-
-    const router = useNavigate();
+    // Removed circular dependency: const authContext = useContext(AuthContext);
+    // Removed circular dependency: const [userData, setUserData] = useState(authContext);
+    const [userData, setUserData] = useState({});
+    
+    // Removed: const router = useNavigate(); 
+    // Context should not handle routing
 
     const handleRegister = async (name, username, password) => {
         try {
@@ -29,7 +25,6 @@ export const AuthProvider = ({ children }) => {
                 username: username,
                 password: password
             })
-
 
             if (request.status === httpStatus.CREATED) {
                 return request.data.message;
@@ -46,12 +41,10 @@ export const AuthProvider = ({ children }) => {
                 password: password
             });
 
-            console.log(username, password)
-            console.log(request.data)
-
             if (request.status === httpStatus.OK) {
                 localStorage.setItem("token", request.data.token);
-                router("/home")
+                // Return success instead of navigating
+                return request;
             }
         } catch (err) {
             throw err;
@@ -66,8 +59,7 @@ export const AuthProvider = ({ children }) => {
                 }
             });
             return request.data
-        } catch
-         (err) {
+        } catch (err) {
             throw err;
         }
     }
@@ -84,15 +76,29 @@ export const AuthProvider = ({ children }) => {
         }
     }
 
-
-    const data = {
-        userData, setUserData, addToUserHistory, getHistoryOfUser, handleRegister, handleLogin
-    }
+    // Memoize the value to prevent unnecessary re-renders of the entire app
+    const data = useMemo(() => ({
+        userData, 
+        setUserData, 
+        addToUserHistory, 
+        getHistoryOfUser, 
+        handleRegister, 
+        handleLogin
+    }), [userData]);
 
     return (
         <AuthContext.Provider value={data}>
             {children}
         </AuthContext.Provider>
     )
+}
 
+// Custom hook for using auth context
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (!context) {
+        // This ensures the hook is used correctly
+        throw new Error('useAuth must be used within AuthProvider');
+    }
+    return context;
 }
