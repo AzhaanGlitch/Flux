@@ -25,11 +25,86 @@
   }
 }
 
+/* FIXED: Simple CSS-only animated lines background - ENHANCED */
+.animated-lines-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.animated-lines-bg .line {
+  position: absolute;
+  left: -100%;
+  width: 200%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(139, 0, 0, 0.1),
+    rgba(220, 38, 38, 0.6),
+    rgba(185, 28, 28, 0.8),
+    rgba(220, 38, 38, 0.6),
+    rgba(139, 0, 0, 0.1),
+    transparent
+  );
+  top: calc(50% + var(--offset, 0px));
+  transform: translateY(-50%) rotate(-20deg);
+  animation: lineSlide 15s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+  opacity: 0;
+  filter: blur(0.5px);
+  box-shadow: 0 0 10px rgba(220, 38, 38, 0.5);
+}
+
+/* Add some thicker accent lines */
+.animated-lines-bg .line:nth-child(5n) {
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(139, 0, 0, 0.2),
+    rgba(239, 68, 68, 0.8),
+    rgba(220, 38, 38, 0.9),
+    rgba(239, 68, 68, 0.8),
+    rgba(139, 0, 0, 0.2),
+    transparent
+  );
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.7);
+}
+
+@keyframes lineSlide {
+  0% {
+    left: -100%;
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.3;
+  }
+  15% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 0.8;
+  }
+  95% {
+    opacity: 0.3;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
 .gradient-overlay {
   position: absolute;
   inset: 0;
   z-index: 10;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.2), transparent);
+  pointer-events: none;
 }
 
 .logo-section {
@@ -62,50 +137,6 @@
   font-weight: 500;
   line-height: 1.75;
   color: #e5e7eb;
-}
-
-.animated-background {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-
-.pointer-events-none {
-  pointer-events: none;
-}
-
-.absolute {
-  position: absolute;
-}
-
-.inset-0 {
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-}
-
-.h-full {
-  height: 100%;
-}
-
-.w-full {
-  width: 100%;
-}
-
-.text-red-500 {
-  color: #ef4444;
-}
-
-@keyframes floatPath {
-  0%, 100% {
-    opacity: 0.3;
-    stroke-dashoffset: 0;
-  }
-  50% {
-    opacity: 0.6;
-    stroke-dashoffset: 1000;
-  }
 }
 
 /* Right Column */
@@ -162,6 +193,7 @@
   isolation: isolate;
   z-index: -10;
   overflow: hidden;
+  pointer-events: none;
 }
 
 .glow-purple {
