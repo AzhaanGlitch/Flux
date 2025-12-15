@@ -1,16 +1,18 @@
 import React from 'react'
 import "../App.css"
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import FloatingLines from '../components/FloatingLines'
+import Navbar from '../components/Navbar'
 
 export default function LandingPage() {
-    const router = useNavigate();
-
     const ACCENT_COLOR = "#8B0000"; 
     const DARK_RED_SHADE = "#600000";
 
     return (
         <div className='landingPageContainer' style={{ position: 'relative', overflow: 'hidden' }}>
+            
+            {/* Navbar Component */}
+            <Navbar />
             
             {/* Animated Background Container */}
             <div style={{
@@ -26,7 +28,6 @@ export default function LandingPage() {
                     enabledWaves={['top', 'middle', 'bottom']}
                     lineCount={[10, 15, 20]}
                     lineDistance={[8, 6, 4]}
-                    // FIX: Dark Red/Maroon Gradient only
                     linesGradient={[ACCENT_COLOR, DARK_RED_SHADE, ACCENT_COLOR]} 
                     bendRadius={5.0}
                     bendStrength={-0.5}
@@ -38,37 +39,9 @@ export default function LandingPage() {
                 />
             </div>
 
-            {/* Content Container (z-index 1) */}
-            <nav style={{ position: 'relative', zIndex: 1 }}>
-                <div className='navHeader'>
-                    <h2>Flux</h2>
-                </div>
-                <div className='navlist'>
-                    <p onClick={() => router("/guest123")}>
-                        Join as Guest
-                    </p>
-                    <p onClick={() => router("/auth")}>
-                        Register
-                    </p>
-                    <div onClick={() => router("/auth")} role='button'>
-                        <p>Login</p>
-                    </div>
-                </div>
-            </nav>
-
+            {/* Main Content Container */}
             <div className="landingMainContainer" style={{ position: 'relative', zIndex: 1 }}>
-                {/* Text Content */}
-                <div>
-                    <h1>
-                        <span style={{ color: ACCENT_COLOR }}>Connect</span> with Anyone, Anywhere
-                    </h1>
-                    <p>Experience seamless video calling with Flux</p>
-                    <div role='button'>
-                        <Link to={"/auth"}>Get Started</Link>
-                    </div>
-                </div>
-                
-                {/* Puma Image */}
+                {/* Puma Image - Extreme Left */}
                 <div 
                     className="pumaImageContainer" 
                     style={{ 
@@ -80,6 +53,18 @@ export default function LandingPage() {
                     }}
                 >
                     <img src="/puma.jpeg" alt="Panther wearing headphones" />
+                </div>
+
+                {/* Text Content - Right Side */}
+                <div className="landingTextContent">
+                    <h1>
+                        <span style={{ color: ACCENT_COLOR }}>FLUX</span>
+                        where Video Chats Turn into Shared Movie Magic
+                    </h1>
+                    <p>Popcorn Not Included!</p>
+                    <div role='button'>
+                        <Link to={"/auth"}>Get Started</Link>
+                    </div>
                 </div>
             </div>
         </div>
