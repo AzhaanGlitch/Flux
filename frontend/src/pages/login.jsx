@@ -129,7 +129,7 @@ export default function Login() {
         <div className="testimonial-section">
           <blockquote className="testimonial-content">
             <p className="testimonial-text">
-              &ldquo;This platform has revolutionized how we conduct creative reviews. The screen sharing quality is unmatched.&rdquo;
+              &ldquo;Grab Your Spot in the Spotlight – Sync Up, Sit Back, and Steal the Scene with Friends.&rdquo;
             </p>
           </blockquote>
         </div>
