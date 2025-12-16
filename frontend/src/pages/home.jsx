@@ -1,14 +1,13 @@
 import React, { useContext, useState } from 'react'
 import withAuth from '../utils/withAuth'
 import { useNavigate } from 'react-router-dom'
-import "../App.css";
+import "../App.css"; // Ensure this includes the body/html reset
 import { Button, IconButton, TextField } from '@mui/material';
-import RestoreIcon from '@mui/icons-material/Restore';
-import LogoutIcon from '@mui/icons-material/Logout';
 import VideoCallIcon from '@mui/icons-material/VideoCall';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { AuthContext } from '../contexts/AuthContext';
 import FloatingLines from '../components/FloatingLines';
+import Navbar from '../components/Navbar';
 
 function HomeComponent() {
     let navigate = useNavigate();
@@ -44,96 +43,17 @@ function HomeComponent() {
 
     return (
         <>
-            {/* Modern Navbar */}
-            <div style={{
-                background: 'linear-gradient(135deg, #000000 0%, #1a0000 100%)',
-                padding: '1.5rem 3rem',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                boxShadow: '0 4px 20px rgba(139, 0, 0, 0.3)',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1000
-            }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <div style={{
-                        width: '40px',
-                        height: '40px',
-                        background: 'linear-gradient(135deg, #8B0000 0%, #600000 100%)',
-                        borderRadius: '10px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: '0 4px 15px rgba(139, 0, 0, 0.5)'
-                    }}>
-                        <VideoCallIcon sx={{ color: 'white', fontSize: '24px' }} />
-                    </div>
-                    <h2 style={{ 
-                        background: 'linear-gradient(135deg, #8B0000 0%, #DC143C 100%)',
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        margin: 0,
-                        fontSize: '1.8rem',
-                        fontWeight: 700
-                    }}>Flux</h2>
-                </div>
+            {/* Use common Navbar with isAuthenticated prop */}
+            <Navbar isAuthenticated={true} />
 
-                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                    <Button
-                        onClick={() => navigate("/history")}
-                        startIcon={<RestoreIcon />}
-                        sx={{
-                            color: "#e5e7eb",
-                            textTransform: "none",
-                            fontWeight: 600,
-                            padding: '0.5rem 1.5rem',
-                            borderRadius: '10px',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                background: "rgba(139, 0, 0, 0.2)",
-                                color: '#DC143C'
-                            }
-                        }}
-                    >
-                        History
-                    </Button>
-
-                    <Button 
-                        onClick={() => {
-                            localStorage.removeItem("token");
-                            navigate("/auth");
-                        }}
-                        startIcon={<LogoutIcon />}
-                        sx={{
-                            background: 'linear-gradient(135deg, #8B0000 0%, #600000 100%)',
-                            color: "white",
-                            textTransform: "none",
-                            fontWeight: 600,
-                            padding: '0.5rem 1.5rem',
-                            borderRadius: '10px',
-                            boxShadow: '0 4px 15px rgba(139, 0, 0, 0.4)',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                background: "linear-gradient(135deg, #600000 0%, #8B0000 100%)",
-                                transform: 'translateY(-2px)',
-                                boxShadow: '0 6px 20px rgba(139, 0, 0, 0.6)'
-                            }
-                        }}
-                    >
-                        Logout
-                    </Button>
-                </div>
-            </div>
-
-            {/* Main Content */}
+            {/* Main Content - Full Viewport Height and Positioned Context */}
             <div style={{ 
                 position: 'relative', 
-                minHeight: 'calc(100vh - 80px)',
+                height: '100vh',
                 background: 'linear-gradient(135deg, #000000 0%, #0a0000 50%, #000000 100%)',
                 overflow: 'hidden'
             }}>
-                {/* Animated Background */}
+                {/* Animated Background (Stays as is) */}
                 <div style={{
                     position: 'absolute',
                     top: 0,
@@ -157,19 +77,71 @@ function HomeComponent() {
                         mixBlendMode="normal"
                     />
                 </div>
-
-                {/* Content Container */}
+                
+                {/* --- RIGHT PANEL --- */}
                 <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    right: 0,
+                    width: '35%', 
+                    height: '100%',
+                    zIndex: 1, 
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'flex-end', 
+                    paddingRight: '0', 
+                }}>
+                    <div style={{
+                        position: 'relative',
+                        height: '100%',
+                        width: 'auto',
+                        display: 'flex',
+                        alignItems: 'flex-end',
+                        justifyContent: 'flex-end',
+                    }}>
+                        {/* Glow Effect */}
+                        <div style={{
+                            position: 'absolute',
+                            top: '50%',
+                            right: '0%',
+                            transform: 'translateY(-50%)',
+                            width: '100%',
+                            height: '100%',
+                            background: 'radial-gradient(circle, rgba(139, 0, 0, 0.3) 0%, transparent 70%)',
+                            filter: 'blur(60px)',
+                            zIndex: 0
+                        }} />
+                        
+                        <img 
+                            src='/thor.png' 
+                            alt="Flux video calling" 
+                            style={{
+                                height: 'calc(100vh - 80px)', 
+                                width: 'auto', 
+                                objectFit: 'contain',
+                                position: 'relative',
+                                zIndex: 1,
+                                filter: 'drop-shadow(0 20px 60px rgba(0, 0, 0, 0.5))',
+                                animation: 'float 6s ease-in-out infinite',
+                                marginRight: '-420px',
+                                marginBottom: '-30px', 
+                            }}
+                        />
+                    </div>
+                </div>
+
+                {/* Content Container (ONLY FOR LEFT PANEL/CONTROLS) */}
+                <div className='meetContainer' style={{ 
                     position: 'relative',
-                    zIndex: 1,
+                    zIndex: 2, // Higher Z-index so the left panel sits above the image
                     maxWidth: '1400px',
                     margin: '0 auto',
-                    padding: '4rem 2rem',
+                    padding: '2rem',
                     display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
+                    gridTemplateColumns: '1fr 1fr', // Still use a grid to position the control box
                     gap: '4rem',
-                    alignItems: 'center',
-                    minHeight: 'calc(100vh - 160px)'
+                    alignItems: 'center', 
+                    height: '100%'
                 }}>
                     {/* Left Panel - Meeting Controls */}
                     <div style={{
@@ -179,6 +151,9 @@ function HomeComponent() {
                         padding: '3rem',
                         border: '1px solid rgba(139, 0, 0, 0.2)',
                         boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+                        marginTop: '80px', 
+                        marginBottom: '80px',
+                        maxWidth: '600px', // Prevent it from stretching too far in 1400px container
                     }}>
                         <div style={{
                             marginBottom: '2rem'
@@ -342,52 +317,13 @@ function HomeComponent() {
                                 Join Meeting
                             </Button>
                         </div>
-
                     </div>
-
-                    {/* Right Panel - Illustration */}
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        position: 'relative'
-                    }}>
-                        <div style={{
-                            position: 'relative',
-                            width: '100%',
-                            maxWidth: '600px'
-                        }}>
-                            {/* Glow Effect */}
-                            <div style={{
-                                position: 'absolute',
-                                top: '50%',
-                                left: '50%',
-                                transform: 'translate(-50%, -50%)',
-                                width: '80%',
-                                height: '80%',
-                                background: 'radial-gradient(circle, rgba(139, 0, 0, 0.3) 0%, transparent 70%)',
-                                filter: 'blur(60px)',
-                                zIndex: 0
-                            }} />
-                            
-                            <img 
-                                src='/thor.jpeg' 
-                                alt="Flux video calling" 
-                                style={{
-                                    width: '100%',
-                                    height: 'auto',
-                                    position: 'relative',
-                                    zIndex: 1,
-                                    filter: 'drop-shadow(0 20px 60px rgba(0, 0, 0, 0.5))',
-                                    animation: 'float 6s ease-in-out infinite'
-                                }}
-                            />
-                        </div>
+                    <div style={{ height: '100%' }}>
                     </div>
                 </div>
-            </div>
+            
 
-            {/* Floating Animation */}
+            {/* Floating Animation and Media Queries */}
             <style>
                 {`
                     @keyframes float {
@@ -400,14 +336,21 @@ function HomeComponent() {
                     }
 
                     @media (max-width: 1024px) {
-                        .meetContainer > div {
+                        .meetContainer { // Targeting the Content Container
                             grid-template-columns: 1fr !important;
                             gap: 2rem !important;
                             padding: 2rem 1rem !important;
                         }
+
+                        /* On mobile, ensure the image is not taking up unnecessary space,
+                           or hide it if it's purely decorative */
+                        .meetContainer > div:nth-child(2) { 
+                            display: none !important; /* Hiding placeholder on small screens */
+                        }
                     }
                 `}
             </style>
+        </div>
         </>
     )
 }
