@@ -1,11 +1,10 @@
 import httpStatus from "http-status";
 import { User } from "../models/user.model.js";
 import bcrypt, { hash } from "bcrypt"
-
 import crypto from "crypto"
 import { Meeting } from "../models/meeting.model.js";
-const login = async (req, res) => {
 
+const login = async (req, res) => {
     const { username, password } = req.body;
 
     if (!username || !password) {
@@ -17,7 +16,6 @@ const login = async (req, res) => {
         if (!user) {
             return res.status(httpStatus.NOT_FOUND).json({ message: "User Not Found" })
         }
-
 
         let isPasswordCorrect = await bcrypt.compare(password, user.password)
 
@@ -36,10 +34,8 @@ const login = async (req, res) => {
     }
 }
 
-
 const register = async (req, res) => {
     const { name, username, password } = req.body;
-
 
     try {
         const existingUser = await User.findOne({ username });
@@ -62,9 +58,7 @@ const register = async (req, res) => {
     } catch (e) {
         res.json({ message: `Something went wrong ${e}` })
     }
-
 }
-
 
 const getUserHistory = async (req, res) => {
     const { token } = req.query;
@@ -97,5 +91,48 @@ const addToHistory = async (req, res) => {
     }
 }
 
+const deleteMeeting = async (req, res) => {
+    const { meetingCode } = req.params;
+    const { token } = req.query;
 
-export { login, register, getUserHistory, addToHistory }
+    try {
+        const user = await User.findOne({ token: token });
+        
+        if (!user) {
+            return res.status(httpStatus.NOT_FOUND).json({ message: "User not found" });
+        }
+
+        const result = await Meeting.deleteOne({ 
+            user_id: user.username, 
+            meetingCode: meetingCode 
+        });
+
+        if (result.deletedCount === 0) {
+            return res.status(httpStatus.NOT_FOUND).json({ message: "Meeting not found" });
+        }
+
+        res.status(httpStatus.OK).json({ message: "Meeting deleted successfully" });
+    } catch (e) {
+        res.status(500).json({ message: `Something went wrong ${e}` })
+    }
+}
+
+const deleteAllMeetings = async (req, res) => {
+    const { token } = req.query;
+
+    try {
+        const user = await User.findOne({ token: token });
+        
+        if (!user) {
+            return res.status(httpStatus.NOT_FOUND).json({ message: "User not found" });
+        }
+
+        await Meeting.deleteMany({ user_id: user.username });
+
+        res.status(httpStatus.OK).json({ message: "All meetings deleted successfully" });
+    } catch (e) {
+        res.status(500).json({ message: `Something went wrong ${e}` })
+    }
+}
+
+export { login, register, getUserHistory, addToHistory, deleteMeeting, deleteAllMeetings }

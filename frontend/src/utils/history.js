@@ -1,19 +1,28 @@
-// src/utils/history.js
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api'; // Adjust as per your backend
+import server from '../environment';
+
+const API_BASE_URL = `${server}/api/v1/users`;
 
 // Delete a single meeting from history by code
 export const deleteMeeting = async (meetingCode) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/history/${meetingCode}`, {
+    const token = localStorage.getItem("token");
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/delete_meeting/${meetingCode}?token=${token}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
-        // Add auth token if needed, e.g., 'Authorization': `Bearer ${token}`
       },
     });
+    
     if (!response.ok) {
-      throw new Error('Failed to delete meeting');
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to delete meeting');
     }
+    
     return await response.json();
   } catch (error) {
     console.error('Error deleting meeting:', error);
@@ -24,16 +33,24 @@ export const deleteMeeting = async (meetingCode) => {
 // Delete all meetings from history
 export const deleteAllMeetings = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/history`, {
+    const token = localStorage.getItem("token");
+    
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/delete_all_meetings?token=${token}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
-        // Add auth token if needed, e.g., 'Authorization': `Bearer ${token}`
       },
     });
+    
     if (!response.ok) {
-      throw new Error('Failed to delete all meetings');
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to delete all meetings');
     }
+    
     return await response.json();
   } catch (error) {
     console.error('Error deleting all meetings:', error);
