@@ -1,3 +1,15 @@
+/* Recommended global reset for full-page background/content */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  /* Ensure no border/outline is causing a white line */
+  border: none;
+  box-sizing: border-box; 
+}
+
+
 /* Landing Page */
 .landingPageContainer {
   width: 100vw;
@@ -121,7 +133,8 @@
 
 /* Meet Container (Home Page) */
 .meetContainer {
-  display: flex;
+  /* Using CSS Grid in home.jsx now, so these are less relevant but kept for other screen sizes */
+  display: flex; 
   align-items: center;
   justify-content: space-between;
   padding: 3rem 5rem;
