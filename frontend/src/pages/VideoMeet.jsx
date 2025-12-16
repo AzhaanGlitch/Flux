@@ -375,6 +375,8 @@ export default function VideoMeetComponent() {
         }
     }
 
+    const localVideoTransform = screen ? 'none' : 'scaleX(-1)';
+
     return (
         <div>
             {askForUsername ? (
@@ -455,7 +457,8 @@ export default function VideoMeetComponent() {
                                 objectFit: 'cover',
                                 marginBottom: '1.5rem',
                                 border: '2px solid rgba(139, 0, 0, 0.3)',
-                                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
+                                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                                transform: localVideoTransform
                             }}
                         />
 
@@ -822,7 +825,8 @@ export default function VideoMeetComponent() {
                             objectFit: 'cover',
                             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
                             border: '3px solid rgba(139, 0, 0, 0.5)',
-                            zIndex: 10
+                            zIndex: 10,
+                            transform: localVideoTransform
                         }}
                     />
 

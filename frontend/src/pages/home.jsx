@@ -123,22 +123,22 @@ function HomeComponent() {
                                 zIndex: 1,
                                 filter: 'drop-shadow(0 20px 60px rgba(0, 0, 0, 0.5))',
                                 animation: 'float 6s ease-in-out infinite',
-                                marginRight: '-420px',
-                                marginBottom: '-30px', 
+                                marginRight: '-500px',
+                                marginBottom: '-30px'
                             }}
                         />
                     </div>
                 </div>
 
-                {/* Content Container (ONLY FOR LEFT PANEL/CONTROLS) */}
+                {/* Content Container */}
                 <div className='meetContainer' style={{ 
                     position: 'relative',
-                    zIndex: 2, // Higher Z-index so the left panel sits above the image
+                    zIndex: 2, 
                     maxWidth: '1400px',
                     margin: '0 auto',
                     padding: '2rem',
                     display: 'grid',
-                    gridTemplateColumns: '1fr 1fr', // Still use a grid to position the control box
+                    gridTemplateColumns: '1fr 1fr',
                     gap: '4rem',
                     alignItems: 'center', 
                     height: '100%'
@@ -153,7 +153,7 @@ function HomeComponent() {
                         boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
                         marginTop: '80px', 
                         marginBottom: '80px',
-                        maxWidth: '600px', // Prevent it from stretching too far in 1400px container
+                        maxWidth: '600px',
                     }}>
                         <div style={{
                             marginBottom: '2rem'

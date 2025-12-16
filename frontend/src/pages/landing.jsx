@@ -41,7 +41,7 @@ export default function LandingPage() {
 
             {/* Main Content Container */}
             <div className="landingMainContainer" style={{ position: 'relative', zIndex: 1 }}>
-                {/* Puma Image - Extreme Left */}
+                {/* Puma Image */}
                 <div 
                     className="pumaImageContainer" 
                     style={{ 
@@ -52,7 +52,14 @@ export default function LandingPage() {
                         pointerEvents: 'none' 
                     }}
                 >
-                    <img src="/puma.jpeg" alt="Panther wearing headphones" />
+                    <img 
+                        src="/puma.jpeg" 
+                        alt="Panther wearing headphones" 
+                        style={{
+                            animation: 'float 6s ease-in-out infinite',
+                            marginBottom: '-30px', 
+                        }}
+                    />
                 </div>
 
                 {/* Text Content - Right Side */}
@@ -67,6 +74,20 @@ export default function LandingPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Floating Animation Keyframe */}
+            <style>
+                {`
+                    @keyframes float {
+                        0%, 100% {
+                            transform: translateY(0px);
+                        }
+                        50% {
+                            transform: translateY(-20px);
+                        }
+                    }
+                `}
+            </style>
         </div>
     )
 }
