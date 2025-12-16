@@ -11,8 +11,8 @@ export default function LandingPage() {
     return (
         <div className='landingPageContainer' style={{ position: 'relative', overflow: 'hidden' }}>
             
-            {/* Navbar Component */}
-            <Navbar />
+            {/* Use common Navbar with isAuthenticated=false */}
+            <Navbar isAuthenticated={false} />
             
             {/* Animated Background Container */}
             <div style={{
