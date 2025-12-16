@@ -6,10 +6,10 @@ import Box from '@mui/material/Box';
 import CardContent from '@mui/material/CardContent';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import HomeIcon from '@mui/icons-material/Home';
 import VideoCallIcon from '@mui/icons-material/VideoCall';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
-import { IconButton, Container, Alert } from '@mui/material';
+import { Container, Alert } from '@mui/material';
+import Navbar from '../components/Navbar';
 
 export default function History() {
     const { getHistoryOfUser } = useContext(AuthContext);
@@ -42,32 +42,10 @@ export default function History() {
 
     return (
         <Box sx={{ minHeight: '100vh', background: 'linear-gradient(to bottom, #f7fafc, #edf2f7)' }}>
-            <Box sx={{
-                background: 'white',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                padding: '1.5rem 3rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'sticky',
-                top: 0,
-                zIndex: 100
-            }}>
-                <Typography variant="h5" sx={{ color: '#667eea', fontWeight: 600 }}>
-                    Flux
-                </Typography>
-                <Button
-                    onClick={() => routeTo("/home")}
-                    startIcon={<HomeIcon />}
-                    sx={{
-                        textTransform: 'none',
-                        fontWeight: 600,
-                        color: '#4a5568'
-                    }}
-                >
-                    Back to Home
-                </Button>
-            </Box>
+            {/* Use common Navbar */}
+            <div style={{ paddingTop: '80px' }}>
+                <Navbar isAuthenticated={true} />
+            </div>
 
             <Container maxWidth="md" sx={{ py: 6 }}>
                 <Box sx={{ mb: 4 }}>
