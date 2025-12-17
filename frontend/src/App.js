@@ -11,7 +11,7 @@ import Footer from './components/Footer';
 import Navbar from './components/Navbar'; 
 import Features from './pages/Features'; 
 import About from './pages/About';
-import Legal from './pages/Legal'; 
+import Legal from './pages/legal/page';
 import ScrollToTop from './components/ScrollToTop'; 
 
 // Main Layout: Navbar + Content + Footer
