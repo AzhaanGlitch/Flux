@@ -1,84 +1,123 @@
-import React from 'react';
+import React, { useState, useEffect, useContext } from 'react';
+import { AppBar, Toolbar, Typography, Button, Box, Container } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '@mui/material';
-import LogoutIcon from '@mui/icons-material/Logout';
-import RestoreIcon from '@mui/icons-material/Restore';
-import '../styles/Navbar.css';
+import { AuthContext } from '../contexts/AuthContext'; 
 
-export default function Navbar({ isAuthenticated = false }) {
-    const router = useNavigate();
+export default function Navbar() {
+    const navigate = useNavigate();
+    const [scrolled, setScrolled] = useState(false);
+    
+    // Access Authentication State
+    const { userData, setUserData } = useContext(AuthContext);
 
+    // Detect scroll for glass effect
+    useEffect(() => {
+        const handleScroll = () => {
+            setScrolled(window.scrollY > 50);
+        };
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    // Logout Function
     const handleLogout = () => {
-        localStorage.removeItem("token");
-        router("/auth");
+        localStorage.removeItem("token"); 
+        setUserData(null); 
+        navigate('/auth'); 
     };
 
     return (
-        <nav className="floatingNavbar">
-            <div className="navContent">
-                <div className='navHeader'>
-                    <h2>Flux</h2>
-                </div>
-                
-                {!isAuthenticated ? (
-                    // Not logged in - Show Join as Guest, Register, Login
-                    <div className='navlist'>
-                        <p onClick={() => router("/guest123")}>
-                            Join as Guest
-                        </p>
-                        <p onClick={() => router("/auth")}>
-                            Register
-                        </p>
-                        <div onClick={() => router("/auth")} role='button' className="loginButton">
-                            <p>Login</p>
-                        </div>
-                    </div>
-                ) : (
-                    // Logged in - Show History and Logout
-                    <div className='navlist'>
-                        <Button
-                            onClick={() => router("/history")}
-                            startIcon={<RestoreIcon />}
-                            sx={{
-                                color: "#2d3748",
-                                textTransform: "none",
-                                fontWeight: 600,
-                                padding: '0.5rem 1rem',
-                                borderRadius: '25px',
-                                transition: 'all 0.3s ease',
-                                '&:hover': {
-                                    background: "rgba(139, 0, 0, 0.1)",
-                                    color: '#8B0000'
-                                }
-                            }}
-                        >
-                            History
-                        </Button>
+        <AppBar 
+            position="fixed" 
+            sx={{ 
+                background: scrolled ? 'rgba(0, 0, 0, 0.8)' : 'transparent',
+                backdropFilter: scrolled ? 'blur(20px)' : 'none',
+                boxShadow: scrolled ? '0 4px 30px rgba(0, 0, 0, 0.1)' : 'none',
+                borderBottom: scrolled ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
+                transition: 'all 0.3s ease',
+                padding: '10px 0'
+            }}
+            elevation={0}
+        >
+            <Container maxWidth="lg">
+                <Toolbar disableGutters sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    
+                    {/* LEFT SIDE: FLUX LOGO */}
+                    <Typography
+                        variant="h5"
+                        onClick={() => navigate('/')}
+                        sx={{
+                            fontWeight: 800,
+                            letterSpacing: '2px',
+                            cursor: 'pointer',
+                            background: 'linear-gradient(135deg, #fff 0%, #DC143C 100%)',
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            '&:hover': { opacity: 0.8 }
+                        }}
+                    >
+                        FLUX
+                    </Typography>
 
-                        <Button 
-                            onClick={handleLogout}
-                            startIcon={<LogoutIcon />}
-                            sx={{
-                                background: 'linear-gradient(135deg, #8B0000 0%, #600000 100%)',
-                                color: "white",
-                                textTransform: "none",
-                                fontWeight: 600,
-                                padding: '0.5rem 1.5rem',
-                                borderRadius: '25px',
-                                boxShadow: '0 4px 15px rgba(139, 0, 0, 0.4)',
-                                transition: 'all 0.3s ease',
-                                '&:hover': {
-                                    background: "linear-gradient(135deg, #600000 0%, #8B0000 100%)",
-                                    transform: 'translateY(-2px)',
-                                    boxShadow: '0 6px 20px rgba(139, 0, 0, 0.6)'
-                                }
-                            }}
-                        >
-                            Logout
-                        </Button>
-                    </div>
-                )}
-            </div>
-        </nav>
+                    {/* RIGHT SIDE: BUTTONS ONLY */}
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                        
+                        {userData ? (
+                            /* LOGGED IN VIEW */
+                            <>
+                                <Button 
+                                    onClick={() => navigate('/history')}
+                                    sx={{
+                                        color: '#fff',
+                                        fontWeight: 500,
+                                        textTransform: 'none',
+                                        fontSize: '1rem',
+                                        '&:hover': { color: '#DC143C', background: 'transparent' }
+                                    }}
+                                >
+                                    History
+                                </Button>
+
+                                <Button 
+                                    variant="outlined" 
+                                    onClick={handleLogout}
+                                    sx={{ 
+                                        borderColor: '#DC143C', 
+                                        color: '#DC143C',
+                                        borderRadius: '20px',
+                                        px: 3,
+                                        '&:hover': {
+                                            borderColor: '#ff4d4d',
+                                            background: 'rgba(220, 20, 60, 0.1)'
+                                        }
+                                    }}
+                                >
+                                    Logout
+                                </Button>
+                            </>
+                        ) : (
+                            /* LOGGED OUT VIEW */
+                            <Button 
+                                variant="outlined" 
+                                onClick={() => navigate('/auth')}
+                                sx={{ 
+                                    borderColor: '#DC143C', 
+                                    color: '#DC143C',
+                                    borderRadius: '20px',
+                                    px: 3,
+                                    '&:hover': {
+                                        borderColor: '#ff4d4d',
+                                        background: 'rgba(220, 20, 60, 0.1)'
+                                    }
+                                }}
+                            >
+                                Sign In
+                            </Button>
+                        )}
+                    </Box>
+
+                </Toolbar>
+            </Container>
+        </AppBar>
     );
 }
