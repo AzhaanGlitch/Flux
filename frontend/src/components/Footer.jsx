@@ -94,9 +94,6 @@ export default function Footer() {
                                     <Link component={RouterLink} to="/features" sx={{ color: '#ffffffcc', textDecoration: 'none', '&:hover': { color: 'red' } }}>
                                         Features
                                     </Link>
-                                    <Link component={RouterLink} to="/community" sx={{ color: '#ffffffcc', textDecoration: 'none', '&:hover': { color: 'red' } }}>
-                                        Community
-                                    </Link>
                                     <Link component="a" href={`mailto:${gmailAddress}`} sx={{ color: '#ffffffcc', textDecoration: 'none', '&:hover': { color: 'red' } }}>
                                         Help Center
                                     </Link>
