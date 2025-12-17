@@ -320,9 +320,6 @@ export default function History() {
                 </Container>
             </div>
 
-            {/* Footer Added Here */}
-            <Footer />
-
             {/* Dialogs */}
             <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
                 <DialogTitle sx={{ color: 'white', background: 'rgba(139, 0, 0, 0.2)' }}>Confirm Delete</DialogTitle>
