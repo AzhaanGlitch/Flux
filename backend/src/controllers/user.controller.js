@@ -65,6 +65,9 @@ const getUserHistory = async (req, res) => {
 
     try {
         const user = await User.findOne({ token: token });
+        if (!user) {
+             return res.status(httpStatus.NOT_FOUND).json({ message: "User not found" });
+        }
         const meetings = await Meeting.find({ user_id: user.username })
         res.json(meetings)
     } catch (e) {
@@ -77,6 +80,9 @@ const addToHistory = async (req, res) => {
 
     try {
         const user = await User.findOne({ token: token });
+        if (!user) {
+             return res.status(httpStatus.NOT_FOUND).json({ message: "User not found" });
+        }
 
         const newMeeting = new Meeting({
             user_id: user.username,
@@ -95,10 +101,13 @@ const deleteMeeting = async (req, res) => {
     const { meetingCode } = req.params;
     const { token } = req.query;
 
+    console.log(`Attempting to delete meeting: ${meetingCode}`);
+
     try {
         const user = await User.findOne({ token: token });
         
         if (!user) {
+            console.log("User not found during delete");
             return res.status(httpStatus.NOT_FOUND).json({ message: "User not found" });
         }
 
@@ -108,17 +117,21 @@ const deleteMeeting = async (req, res) => {
         });
 
         if (result.deletedCount === 0) {
+            console.log("Meeting not found or already deleted");
             return res.status(httpStatus.NOT_FOUND).json({ message: "Meeting not found" });
         }
-
+        
+        console.log("Meeting deleted successfully");
         res.status(httpStatus.OK).json({ message: "Meeting deleted successfully" });
     } catch (e) {
+        console.error("Delete meeting error:", e);
         res.status(500).json({ message: `Something went wrong ${e}` })
     }
 }
 
 const deleteAllMeetings = async (req, res) => {
     const { token } = req.query;
+    console.log("Attempting to delete ALL meetings");
 
     try {
         const user = await User.findOne({ token: token });
@@ -127,10 +140,12 @@ const deleteAllMeetings = async (req, res) => {
             return res.status(httpStatus.NOT_FOUND).json({ message: "User not found" });
         }
 
-        await Meeting.deleteMany({ user_id: user.username });
+        const result = await Meeting.deleteMany({ user_id: user.username });
+        console.log(`Deleted ${result.deletedCount} meetings`);
 
         res.status(httpStatus.OK).json({ message: "All meetings deleted successfully" });
     } catch (e) {
+        console.error("Delete all error:", e);
         res.status(500).json({ message: `Something went wrong ${e}` })
     }
 }
