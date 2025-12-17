@@ -10,10 +10,12 @@ import IconButton from '@mui/material/IconButton';
 import VideoCallIcon from '@mui/icons-material/VideoCall';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { Container, Alert, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
 import Navbar from '../components/Navbar';
 import FloatingLines from '../components/FloatingLines';
-import { deleteMeeting, deleteAllMeetings } from '../utils/history'; // Import new functions
+import Footer from '../components/Footer'; // Import Footer
+import { deleteMeeting, deleteAllMeetings } from '../utils/history';
 
 export default function History() {
     const { getHistoryOfUser } = useContext(AuthContext);
@@ -34,6 +36,7 @@ export default function History() {
             setError(false);
             setDeleteError('');
         } catch (err) {
+            console.error("Error fetching history:", err);
             setError(true);
             setLoading(false);
         }
@@ -60,8 +63,10 @@ export default function History() {
         if (meetingToDelete) {
             try {
                 await deleteMeeting(meetingToDelete);
-                fetchHistory(); // Refetch to update UI
+                setMeetings(prev => prev.filter(m => m.meetingCode !== meetingToDelete));
+                setDeleteError(''); 
             } catch (err) {
+                console.error("Delete failed:", err);
                 setDeleteError('Failed to delete meeting. Please try again.');
             }
         }
@@ -76,34 +81,36 @@ export default function History() {
     const confirmDeleteAll = async () => {
         try {
             await deleteAllMeetings();
-            fetchHistory(); // Refetch to update UI
+            setMeetings([]); 
+            setDeleteError('');
         } catch (err) {
+            console.error("Delete all failed:", err);
             setDeleteError('Failed to delete all meetings. Please try again.');
         }
         setDeleteAllDialogOpen(false);
     };
 
     return (
-        <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #000000 0%, #0a0000 50%, #000000 100%)' }}>
-            {/* Use common Navbar */}
+        <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            minHeight: '100vh', 
+            background: 'linear-gradient(135deg, #000000 0%, #0a0000 50%, #000000 100%)' 
+        }}>
             <Navbar isAuthenticated={true} />
 
-            {/* Main Content - Full Viewport Height and Positioned Context */}
+            {/* Main Content Area - Set to flex: 1 to fill space between Navbar and Footer */}
             <div style={{ 
+                flex: 1,
                 position: 'relative', 
-                minHeight: 'calc(100vh - 80px)',
                 overflow: 'hidden',
-                paddingTop: '80px'
+                paddingTop: '80px' // Keep padding for Navbar spacing
             }}>
                 {/* Animated Background */}
                 <div style={{
                     position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    zIndex: 0,
-                    opacity: 0.3
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    zIndex: 0, opacity: 0.3
                 }}>
                     <FloatingLines 
                         enabledWaves={['top', 'middle', 'bottom']}
@@ -121,35 +128,55 @@ export default function History() {
                 </div>
 
                 <Container maxWidth="md" sx={{ py: 6, position: 'relative', zIndex: 2 }}>
-                    <Box sx={{ mb: 4 }}>
-                        <Typography variant="h4" sx={{ fontWeight: 700, color: 'white', mb: 1 }}>
-                            Meeting History
-                        </Typography>
-                        <Typography variant="body1" sx={{ color: '#9ca3af' }}>
-                            View all your past video meetings
-                        </Typography>
-                        {meetings.length > 0 && (
-                            <Button
-                                variant="outlined"
-                                onClick={handleDeleteAll}
-                                sx={{
-                                    mt: 2,
-                                    textTransform: 'none',
-                                    borderColor: 'rgba(139, 0, 0, 0.5)',
-                                    color: '#DC143C',
-                                    fontWeight: 600,
-                                    borderWidth: '2px',
-                                    '&:hover': {
-                                        borderColor: '#8B0000',
-                                        background: 'rgba(139, 0, 0, 0.1)',
-                                    }
-                                }}
-                                startIcon={<DeleteIcon />}
-                            >
-                                Delete All
-                            </Button>
-                        )}
+                    
+                    {/* Header Section */}
+                    <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <Box>
+                            <Typography variant="h4" sx={{ fontWeight: 700, color: 'white', mb: 1 }}>
+                                Meeting History
+                            </Typography>
+                            <Typography variant="body1" sx={{ color: '#9ca3af' }}>
+                                View all your past video meetings
+                            </Typography>
+                        </Box>
+                        <Button
+                            variant="outlined"
+                            onClick={() => routeTo("/home")}
+                            startIcon={<ArrowBackIcon />}
+                            sx={{
+                                color: 'white',
+                                borderColor: 'rgba(255,255,255,0.3)',
+                                '&:hover': {
+                                    borderColor: 'white',
+                                    background: 'rgba(255,255,255,0.1)'
+                                }
+                            }}
+                        >
+                            Back to Home
+                        </Button>
                     </Box>
+
+                    {meetings.length > 0 && (
+                        <Button
+                            variant="outlined"
+                            onClick={handleDeleteAll}
+                            sx={{
+                                mb: 3,
+                                textTransform: 'none',
+                                borderColor: 'rgba(139, 0, 0, 0.5)',
+                                color: '#DC143C',
+                                fontWeight: 600,
+                                borderWidth: '2px',
+                                '&:hover': {
+                                    borderColor: '#8B0000',
+                                    background: 'rgba(139, 0, 0, 0.1)',
+                                }
+                            }}
+                            startIcon={<DeleteIcon />}
+                        >
+                            Delete All History
+                        </Button>
+                    )}
 
                     {deleteError && (
                         <Alert 
@@ -293,11 +320,14 @@ export default function History() {
                 </Container>
             </div>
 
-            {/* Single Delete Confirmation Dialog */}
+            {/* Footer Added Here */}
+            <Footer />
+
+            {/* Dialogs */}
             <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
                 <DialogTitle sx={{ color: 'white', background: 'rgba(139, 0, 0, 0.2)' }}>Confirm Delete</DialogTitle>
                 <DialogContent sx={{ background: 'rgba(255, 255, 255, 0.03)', color: 'white' }}>
-                    <DialogContentText>
+                    <DialogContentText sx={{ color: '#d1d5db' }}>
                         Are you sure you want to delete this meeting? This action cannot be undone.
                     </DialogContentText>
                 </DialogContent>
@@ -311,11 +341,10 @@ export default function History() {
                 </DialogActions>
             </Dialog>
 
-            {/* Delete All Confirmation Dialog */}
             <Dialog open={deleteAllDialogOpen} onClose={() => setDeleteAllDialogOpen(false)}>
                 <DialogTitle sx={{ color: 'white', background: 'rgba(139, 0, 0, 0.2)' }}>Confirm Delete All</DialogTitle>
                 <DialogContent sx={{ background: 'rgba(255, 255, 255, 0.03)', color: 'white' }}>
-                    <DialogContentText>
+                    <DialogContentText sx={{ color: '#d1d5db' }}>
                         Are you sure you want to delete all meetings? This action cannot be undone.
                     </DialogContentText>
                 </DialogContent>
