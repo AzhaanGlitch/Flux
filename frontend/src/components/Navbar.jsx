@@ -7,8 +7,24 @@ export default function Navbar() {
     const navigate = useNavigate();
     const [scrolled, setScrolled] = useState(false);
     
-    // Access Authentication State
-    const { userData, setUserData } = useContext(AuthContext);
+    // Check if user is authenticated by checking localStorage token
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const { setUserData } = useContext(AuthContext);
+
+    // Check authentication status on mount and when localStorage changes
+    useEffect(() => {
+        const checkAuth = () => {
+            const token = localStorage.getItem("token");
+            setIsAuthenticated(!!token);
+        };
+
+        checkAuth();
+
+        // Listen for storage changes (in case user logs in/out in another tab)
+        window.addEventListener('storage', checkAuth);
+        
+        return () => window.removeEventListener('storage', checkAuth);
+    }, []);
 
     // Detect scroll for glass effect
     useEffect(() => {
@@ -23,6 +39,7 @@ export default function Navbar() {
     const handleLogout = () => {
         localStorage.removeItem("token"); 
         setUserData(null); 
+        setIsAuthenticated(false);
         navigate('/auth'); 
     };
 
@@ -30,12 +47,19 @@ export default function Navbar() {
         <AppBar 
             position="fixed" 
             sx={{ 
-                background: scrolled ? 'rgba(0, 0, 0, 0.8)' : 'transparent',
-                backdropFilter: scrolled ? 'blur(20px)' : 'none',
-                boxShadow: scrolled ? '0 4px 30px rgba(0, 0, 0, 0.1)' : 'none',
-                borderBottom: scrolled ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
+                background: scrolled ? 'rgba(0, 0, 0, 0.4)' : 'transparent',
+                backdropFilter: scrolled ? 'blur(15px)' : 'none',
+                boxShadow: scrolled ? '0 8px 32px 0 rgba(0, 0, 0, 0.37)' : 'none',
+                border: scrolled ? '1px solid rgba(255, 255, 255, 0.1)' : 'none',
+                borderRadius: '50px',
                 transition: 'all 0.3s ease',
-                padding: '10px 0'
+                padding: '10px 0',
+                margin: '20px auto',
+                maxWidth: '95%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: 'auto',
+                opacity: '1'
             }}
             elevation={0}
         >
@@ -59,11 +83,11 @@ export default function Navbar() {
                         FLUX
                     </Typography>
 
-                    {/* RIGHT SIDE: BUTTONS ONLY */}
+                    {/* RIGHT SIDE: CONDITIONAL BUTTONS */}
                     <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                         
-                        {userData ? (
-                            /* LOGGED IN VIEW */
+                        {isAuthenticated ? (
+                            /* LOGGED IN VIEW: History + Logout */
                             <>
                                 <Button 
                                     onClick={() => navigate('/history')}
@@ -96,7 +120,7 @@ export default function Navbar() {
                                 </Button>
                             </>
                         ) : (
-                            /* LOGGED OUT VIEW */
+                            /* LOGGED OUT VIEW: Only Sign In */
                             <Button 
                                 variant="outlined" 
                                 onClick={() => navigate('/auth')}

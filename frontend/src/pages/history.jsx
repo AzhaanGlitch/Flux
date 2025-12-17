@@ -151,6 +151,7 @@ export default function History() {
                                     background: 'rgba(255,255,255,0.1)'
                                 }
                             }}
+                            style={{borderRadius: '30px'}}
                         >
                             Back to Home
                         </Button>
