@@ -1,8 +1,6 @@
-let IS_PROD = true;
+let IS_PROD = false; // Change this to false
 const server = IS_PROD ?
     "https://apnacollegebackend.onrender.com" :
-
     "http://localhost:8000"
-
 
 export default server;
