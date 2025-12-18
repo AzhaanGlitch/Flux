@@ -1,7 +1,6 @@
 import axios from "axios";
 import httpStatus from "http-status";
 import { createContext, useContext, useState, useMemo } from "react";
-// Removed useNavigate to prevent crash if AuthProvider is outside Router
 import server from "../environment";
 
 export const AuthContext = createContext(null);
@@ -11,12 +10,7 @@ const client = axios.create({
 })
 
 export const AuthProvider = ({ children }) => {
-    // Removed circular dependency: const authContext = useContext(AuthContext);
-    // Removed circular dependency: const [userData, setUserData] = useState(authContext);
     const [userData, setUserData] = useState({});
-    
-    // Removed: const router = useNavigate(); 
-    // Context should not handle routing
 
     const handleRegister = async (name, username, password) => {
         try {
@@ -25,7 +19,6 @@ export const AuthProvider = ({ children }) => {
                 username: username,
                 password: password
             })
-
             if (request.status === httpStatus.CREATED) {
                 return request.data.message;
             }
@@ -43,7 +36,7 @@ export const AuthProvider = ({ children }) => {
 
             if (request.status === httpStatus.OK) {
                 localStorage.setItem("token", request.data.token);
-                // Return success instead of navigating
+                setUserData(request.data.user || {}); // Update state on login
                 return request;
             }
         } catch (err) {
@@ -54,9 +47,7 @@ export const AuthProvider = ({ children }) => {
     const getHistoryOfUser = async () => {
         try {
             let request = await client.get("/get_all_activity", {
-                params: {
-                    token: localStorage.getItem("token")
-                }
+                params: { token: localStorage.getItem("token") }
             });
             return request.data
         } catch (err) {
@@ -76,7 +67,6 @@ export const AuthProvider = ({ children }) => {
         }
     }
 
-    // Memoize the value to prevent unnecessary re-renders of the entire app
     const data = useMemo(() => ({
         userData, 
         setUserData, 
@@ -93,11 +83,9 @@ export const AuthProvider = ({ children }) => {
     )
 }
 
-// Custom hook for using auth context
 export const useAuth = () => {
     const context = useContext(AuthContext);
     if (!context) {
-        // This ensures the hook is used correctly
         throw new Error('useAuth must be used within AuthProvider');
     }
     return context;
