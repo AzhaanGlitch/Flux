@@ -20,7 +20,7 @@ router.post("/google", async (req, res) => {
             return res.status(400).json({ message: "Token is required" });
         }
 
-        // Verify the token
+        // Verify the token with more lenient options
         const ticket = await client.verifyIdToken({
             idToken: token,
             audience: process.env.GOOGLE_CLIENT_ID,
@@ -59,6 +59,7 @@ router.post("/google", async (req, res) => {
             // Update existing user with Google ID if not present
             if (!user.googleId) {
                 user.googleId = googleId;
+                user.profilePicture = picture; // Update profile picture
                 await user.save();
             }
             console.log("Existing user found:", user.username);
@@ -73,19 +74,25 @@ router.post("/google", async (req, res) => {
             token: authToken,
             user: {
                 name: user.name,
-                username: user.username
+                username: user.username,
+                profilePicture: user.profilePicture
             }
         });
         
     } catch (error) {
         console.error("Google OAuth error:", error);
         
+        // Handle specific error types
         if (error.message && error.message.includes('Token used too late')) {
             return res.status(401).json({ message: "Token expired. Please try again." });
         }
         
-        res.status(401).json({ 
-            message: "Invalid token or authentication failed",
+        if (error.message && error.message.includes('Invalid token')) {
+            return res.status(401).json({ message: "Invalid Google token. Please try again." });
+        }
+        
+        res.status(500).json({ 
+            message: "Authentication failed. Please try again.",
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }

@@ -17,15 +17,19 @@ const io = connectToSocket(server);
 // Port configuration
 const PORT = process.env.PORT || 8000;
 
-// CORS configuration
+// CORS configuration - MUST BE BEFORE ROUTES
 const corsOptions = {
     origin: process.env.FRONTEND_URL || "http://localhost:3000",
     credentials: true,
-    optionsSuccessStatus: 200
+    optionsSuccessStatus: 200,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 };
 
-app.use("/api/v1/auth", authRoutes);
+// Apply CORS FIRST
 app.use(cors(corsOptions));
+
+// Then parse JSON bodies
 app.use(express.json({ limit: "40kb" }));
 app.use(express.urlencoded({ limit: "40kb", extended: true }));
 
@@ -38,7 +42,8 @@ app.get("/health", (req, res) => {
     });
 });
 
-// API routes
+// API routes - NOW AFTER CORS
+app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
 
 // Error handling middleware
@@ -69,6 +74,7 @@ const start = async () => {
         server.listen(PORT, () => {
             console.log(`Server listening on port ${PORT}`);
             console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+            console.log(`CORS enabled for: ${process.env.FRONTEND_URL || "http://localhost:3000"}`);
         });
 
     } catch (error) {

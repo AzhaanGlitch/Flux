@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { AuthContext } from '../contexts/AuthContext';
 import '../styles/login.css';
 import { GoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
@@ -16,7 +16,7 @@ const AtSignIcon = ({ className }) => (
 
 export default function Login() {
   const navigate = useNavigate();
-  const { handleLogin, handleRegister } = useAuth();
+  const { handleLogin, handleRegister, setUserData } = useContext(AuthContext);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -63,8 +63,9 @@ export default function Login() {
   const handleGoogleLoginSuccess = async (credentialResponse) => {
     setLoading(true);
     setError('');
+    
     try {
-        console.log('Google credential received:', credentialResponse);
+        console.log('Google credential received');
         
         const response = await axios.post(
             `${server}/api/v1/auth/google`,
@@ -72,21 +73,39 @@ export default function Login() {
             {
                 headers: {
                     'Content-Type': 'application/json'
-                }
+                },
+                withCredentials: true
             }
         );
         
         console.log('Backend response:', response.data);
         
         if (response.status === 200 && response.data.token) {
+            // Store token
             localStorage.setItem("token", response.data.token);
+            
+            // Update context with user data
+            if (response.data.user) {
+                setUserData(response.data.user);
+            }
+            
+            // Navigate to home
+            console.log('Navigating to home...');
             navigate("/home");
         } else {
             setError("Invalid response from server");
         }
     } catch (error) {
         console.error("Google login error:", error);
-        setError(error.response?.data?.message || "Google login failed. Please try again.");
+        
+        // Handle specific error messages
+        if (error.response?.data?.message) {
+            setError(error.response.data.message);
+        } else if (error.message) {
+            setError(error.message);
+        } else {
+            setError("Google login failed. Please try again.");
+        }
     } finally {
         setLoading(false);
     }
@@ -141,6 +160,7 @@ export default function Login() {
                 text={isSignUp ? "signup_with" : "signin_with"}
                 shape="rectangular"
                 theme="filled_blue"
+                auto_select={false}
             />
           </div>
 
