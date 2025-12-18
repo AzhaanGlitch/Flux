@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import '../styles/login.css';
-import { GoogleLogin } from '@react-oauth/google'; // Changed from GoogleOAuthProvider
-import axios from 'axios'; // Added missing import
-import server from '../environment'; // Added missing import
+import { GoogleLogin } from '@react-oauth/google';
+import axios from 'axios';
+import server from '../environment';
 
 // --- Icons (Lucide React) ---
 const ChevronLeftIcon = ({ className }) => (
@@ -62,22 +62,39 @@ export default function Login() {
 
   const handleGoogleLoginSuccess = async (credentialResponse) => {
     setLoading(true);
+    setError('');
     try {
+        console.log('Google credential received:', credentialResponse);
+        
         const response = await axios.post(
-            `${server}/api/v1/users/google_login`, // Ensure this route exists on backend
-            { token: credentialResponse.credential }
+            `${server}/api/v1/auth/google`,
+            { token: credentialResponse.credential },
+            {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }
         );
         
-        if (response.status === 200) {
+        console.log('Backend response:', response.data);
+        
+        if (response.status === 200 && response.data.token) {
             localStorage.setItem("token", response.data.token);
             navigate("/home");
+        } else {
+            setError("Invalid response from server");
         }
     } catch (error) {
         console.error("Google login error:", error);
-        setError("Google login failed. Please try again.");
+        setError(error.response?.data?.message || "Google login failed. Please try again.");
     } finally {
         setLoading(false);
     }
+  };
+
+  const handleGoogleLoginError = () => {
+    setError("Google login failed. Please try again.");
+    setLoading(false);
   };
 
   return (
@@ -118,8 +135,12 @@ export default function Login() {
           <div className="social-buttons" style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.5rem' }}>
             <GoogleLogin
                 onSuccess={handleGoogleLoginSuccess}
-                onError={() => setError("Google Login Failed")}
-                useOneTap
+                onError={handleGoogleLoginError}
+                useOneTap={false}
+                size="large"
+                text={isSignUp ? "signup_with" : "signin_with"}
+                shape="rectangular"
+                theme="filled_blue"
             />
           </div>
 

@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { OAuth2Client } from 'google-auth-library';
-import { User } from "../models/user.model.js"; // Added missing import
-import bcrypt from "bcrypt"; // Added missing import
-import crypto from "crypto"; // Added missing import
+import { User } from "../models/user.model.js";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
 
 const router = Router();
+
+// Initialize Google OAuth client
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Google OAuth callback endpoint
@@ -12,6 +14,12 @@ router.post("/google", async (req, res) => {
     try {
         const { token } = req.body;
         
+        console.log("Received Google token request");
+        
+        if (!token) {
+            return res.status(400).json({ message: "Token is required" });
+        }
+
         // Verify the token
         const ticket = await client.verifyIdToken({
             idToken: token,
@@ -19,6 +27,7 @@ router.post("/google", async (req, res) => {
         });
         
         const payload = ticket.getPayload();
+        console.log("Google payload verified:", payload.email);
         
         // Extract user information
         const {
@@ -28,19 +37,31 @@ router.post("/google", async (req, res) => {
             sub: googleId
         } = payload;
         
-        // Check if user exists or create new user
-        let user = await User.findOne({ email });
+        // Check if user exists
+        let user = await User.findOne({ username: email });
         
         if (!user) {
+            // Create new user with Google info
+            const randomPassword = crypto.randomBytes(16).toString("hex");
+            const hashedPassword = await bcrypt.hash(randomPassword, 10);
+            
             user = new User({
-                name,
-                username: email.split('@')[0] + Math.floor(Math.random() * 1000), // Added random suffix for uniqueness
-                email,
-                googleId,
-                profilePicture: picture,
-                password: await bcrypt.hash(crypto.randomBytes(16).toString("hex"), 10) // More secure random password
+                name: name,
+                username: email, // Using email as username for Google users
+                password: hashedPassword,
+                googleId: googleId,
+                profilePicture: picture
             });
+            
             await user.save();
+            console.log("New user created:", user.username);
+        } else {
+            // Update existing user with Google ID if not present
+            if (!user.googleId) {
+                user.googleId = googleId;
+                await user.save();
+            }
+            console.log("Existing user found:", user.username);
         }
         
         // Generate auth token
@@ -52,14 +73,21 @@ router.post("/google", async (req, res) => {
             token: authToken,
             user: {
                 name: user.name,
-                email: user.email,
                 username: user.username
             }
         });
         
     } catch (error) {
         console.error("Google OAuth error:", error);
-        res.status(401).json({ message: "Invalid token" });
+        
+        if (error.message && error.message.includes('Token used too late')) {
+            return res.status(401).json({ message: "Token expired. Please try again." });
+        }
+        
+        res.status(401).json({ 
+            message: "Invalid token or authentication failed",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 
