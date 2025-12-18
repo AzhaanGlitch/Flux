@@ -5,6 +5,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { connectToSocket } from "./controllers/socketManager.js";
 import userRoutes from "./routes/users.routes.js";
+import authRoutes from "./routes/auth.routes.js";
 
 // Load environment variables
 dotenv.config();
@@ -23,6 +24,7 @@ const corsOptions = {
     optionsSuccessStatus: 200
 };
 
+app.use("/api/v1/auth", authRoutes);
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "40kb" }));
 app.use(express.urlencoded({ limit: "40kb", extended: true }));

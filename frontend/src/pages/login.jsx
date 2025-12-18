@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import '../styles/login.css';
+import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
 // --- Icons (Lucide React) ---
 const ChevronLeftIcon = ({ className }) => (
@@ -63,9 +64,22 @@ export default function Login() {
   };
 
   // Handle Google Login (placeholder)
-  const handleGoogleLogin = async () => {
-    setError('Google login is not configured yet.');
-  };
+  const handleGoogleLogin = async (credentialResponse) => {
+    try {
+        const response = await axios.post(
+            `${server}/api/v1/auth/google`,
+            { token: credentialResponse.credential }
+        );
+        
+        if (response.status === 200) {
+            localStorage.setItem("token", response.data.token);
+            navigate("/home");
+        }
+    } catch (error) {
+        console.error("Google login error:", error);
+        setError("Google login failed. Please try again.");
+    }
+};
 
   return (
     <main className="login-container">
