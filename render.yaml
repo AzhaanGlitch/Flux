@@ -1,0 +1,33 @@
+services:
+  # Backend Service
+  - type: web
+    name: flux-backend
+    env: node
+    region: oregon
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8000
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://your-frontend-url.onrender.com
+    healthCheckPath: /health
+
+  # Frontend Service
+  - type: web
+    name: flux-frontend
+    env: static
+    region: oregon
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/build
+    envVars:
+      - key: REACT_APP_BACKEND_URL
+        value: https://flux-backend.onrender.com
