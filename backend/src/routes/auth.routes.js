@@ -1,5 +1,8 @@
 import { Router } from "express";
 import { OAuth2Client } from 'google-auth-library';
+import { User } from "../models/user.model.js"; // Added missing import
+import bcrypt from "bcrypt"; // Added missing import
+import crypto from "crypto"; // Added missing import
 
 const router = Router();
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -31,16 +34,16 @@ router.post("/google", async (req, res) => {
         if (!user) {
             user = new User({
                 name,
-                username: email.split('@')[0],
+                username: email.split('@')[0] + Math.floor(Math.random() * 1000), // Added random suffix for uniqueness
                 email,
                 googleId,
                 profilePicture: picture,
-                password: await bcrypt.hash(Math.random().toString(36), 10) // Random password
+                password: await bcrypt.hash(crypto.randomBytes(16).toString("hex"), 10) // More secure random password
             });
             await user.save();
         }
         
-        // Generate JWT token
+        // Generate auth token
         const authToken = crypto.randomBytes(20).toString("hex");
         user.token = authToken;
         await user.save();
