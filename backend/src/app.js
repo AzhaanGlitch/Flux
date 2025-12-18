@@ -1,39 +1,84 @@
 import express from "express";
 import { createServer } from "node:http";
-
-import { Server } from "socket.io";
-
 import mongoose from "mongoose";
-import { connectToSocket } from "./controllers/socketManager.js";
-
 import cors from "cors";
+import dotenv from "dotenv";
+import { connectToSocket } from "./controllers/socketManager.js";
 import userRoutes from "./routes/users.routes.js";
+
+// Load environment variables
+dotenv.config();
 
 const app = express();
 const server = createServer(app);
 const io = connectToSocket(server);
 
+// Port configuration
+const PORT = process.env.PORT || 8000;
 
-app.set("port", (process.env.PORT || 8000))
-app.use(cors());
+// CORS configuration
+const corsOptions = {
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    credentials: true,
+    optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "40kb" }));
 app.use(express.urlencoded({ limit: "40kb", extended: true }));
 
+// Health check endpoint for Render
+app.get("/health", (req, res) => {
+    res.status(200).json({ 
+        status: "ok", 
+        message: "Server is running",
+        timestamp: new Date().toISOString()
+    });
+});
+
+// API routes
 app.use("/api/v1/users", userRoutes);
 
-const start = async () => {
-    app.set("mongo_user")
-    const connectionDb = await mongoose.connect("mongodb+srv://imdigitalashish:imdigitalashish@cluster0.cujabk4.mongodb.net/")
-
-    console.log(`MONGO Connected DB HOst: ${connectionDb.connection.host}`)
-    server.listen(app.get("port"), () => {
-        console.log("LISTENIN ON PORT 8000")
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error("Error:", err);
+    res.status(500).json({ 
+        message: "Internal server error", 
+        error: process.env.NODE_ENV === "development" ? err.message : undefined 
     });
+});
 
+const start = async () => {
+    try {
+        // Validate environment variables
+        if (!process.env.MONGODB_URI) {
+            throw new Error("MONGODB_URI is not defined in environment variables");
+        }
 
+        // Connect to MongoDB
+        const connectionDb = await mongoose.connect(process.env.MONGODB_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+        });
 
-}
+        console.log(`MongoDB Connected: ${connectionDb.connection.host}`);
+        
+        // Start server
+        server.listen(PORT, () => {
+            console.log(`Server listening on port ${PORT}`);
+            console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+        });
 
+    } catch (error) {
+        console.error("Failed to start server:", error);
+        process.exit(1);
+    }
+};
 
+// Handle unhandled promise rejections
+process.on("unhandledRejection", (err) => {
+    console.error("Unhandled Promise Rejection:", err);
+    server.close(() => process.exit(1));
+});
 
 start();
