@@ -53,7 +53,6 @@ export default function VideoMeetComponent() {
     let [askForUsername, setAskForUsername] = useState(true);
     let [username, setUsername] = useState("");
 
-    const videoRef = useRef([])
     let [videos, setVideos] = useState([])
     
     const originalStreamRef = useRef(null);
@@ -118,26 +117,52 @@ export default function VideoMeetComponent() {
         } catch (e) { console.log(e) }
 
         window.localStream = stream
-        originalStreamRef.current = stream;
+        if (video) {
+            originalStreamRef.current = stream;
+        }
         localVideoref.current.srcObject = stream
 
-        for (let id in connections) {
-            if (id === socketIdRef.current) continue
-            
-            const senders = connections[id].getSenders();
+        // Add or replace tracks in all existing connections
+        Object.keys(connections).forEach(id => {
+            if (id === socketIdRef.current) return;
+            const pc = connections[id];
             const videoTrack = stream.getVideoTracks()[0];
             const audioTrack = stream.getAudioTracks()[0];
-            
-            senders.forEach(sender => {
-                if (sender.track) {
-                    if (sender.track.kind === 'video' && videoTrack) {
-                        sender.replaceTrack(videoTrack);
-                    } else if (sender.track.kind === 'audio' && audioTrack) {
-                        sender.replaceTrack(audioTrack);
-                    }
+
+            // Handle video track
+            let videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+            if (videoTrack) {
+                if (videoSender) {
+                    videoSender.replaceTrack(videoTrack);
+                } else {
+                    pc.addTrack(videoTrack, stream);
                 }
-            });
-        }
+            } else if (videoAvailable && !video) {
+                const blackTrack = black();
+                if (videoSender) {
+                    videoSender.replaceTrack(blackTrack);
+                } else {
+                    pc.addTrack(blackTrack);
+                }
+            }
+
+            // Handle audio track
+            let audioSender = pc.getSenders().find(s => s.track?.kind === 'audio');
+            if (audioTrack) {
+                if (audioSender) {
+                    audioSender.replaceTrack(audioTrack);
+                } else {
+                    pc.addTrack(audioTrack, stream);
+                }
+            } else if (audioAvailable && !audio) {
+                const silentTrack = silence();
+                if (audioSender) {
+                    audioSender.replaceTrack(silentTrack);
+                } else {
+                    pc.addTrack(silentTrack);
+                }
+            }
+        });
     }
 
     let getUserMedia = () => {
@@ -163,9 +188,26 @@ export default function VideoMeetComponent() {
         
         const screenVideoTrack = stream.getVideoTracks()[0];
         
-        // Update local preview to show screen
-        localVideoref.current.srcObject = stream;
+        // Do NOT update local preview; keep it as camera
+        // localVideoref.current.srcObject remains originalStreamRef.current
         
+        // Add screen as a separate tile in videos
+        setVideos(prevVideos => {
+            const screenExists = prevVideos.find(v => v.socketId === `${socketIdRef.current}-screen`);
+            
+            if (!screenExists) {
+                return [...prevVideos, {
+                    socketId: `${socketIdRef.current}-screen`,
+                    stream: stream,
+                    autoplay: true,
+                    playsinline: true,
+                    isScreen: true,
+                    name: username + "'s Screen"
+                }];
+            }
+            return prevVideos;
+        });
+
         // Replace video track in all peer connections
         for (let id in connections) {
             if (id === socketIdRef.current) continue;
@@ -182,10 +224,7 @@ export default function VideoMeetComponent() {
             console.log('Screen share stopped');
             setScreen(false);
             
-            // Restore local preview to camera
-            if (originalStreamRef.current) {
-                localVideoref.current.srcObject = originalStreamRef.current;
-            }
+            setVideos(prevVideos => prevVideos.filter(v => v.socketId !== `${socketIdRef.current}-screen`));
             
             // Restore camera track in peer connections
             if (originalStreamRef.current) {
@@ -266,8 +305,8 @@ export default function VideoMeetComponent() {
             socketRef.current.emit('join-call', window.location.href)
             socketIdRef.current = socketRef.current.id
             
-            // Broadcast username to all participants
-            socketRef.current.emit('username', username);
+            // Broadcast username to all participants - FIXED: include socket ID
+            socketRef.current.emit('username', socketIdRef.current, username);
             participantNames[socketIdRef.current] = username;
             
             socketRef.current.on('chat-message', addMessage)
@@ -369,24 +408,11 @@ export default function VideoMeetComponent() {
                             }
                         };
 
-                        // Add local stream tracks
-                        if (window.localStream) {
-                            console.log('Adding local tracks to connection:', socketListId);
-                            window.localStream.getTracks().forEach(track => {
-                                console.log('Adding track:', track.kind, 'enabled:', track.enabled);
-                                try {
-                                    connections[socketListId].addTrack(track, window.localStream);
-                                } catch (e) {
-                                    console.error('Error adding track:', e);
-                                }
-                            });
-                        } else {
-                            console.error('❌ No local stream available!');
-                        }
+                        // Do NOT add tracks here; will be added when stream is ready
                     }
                 })
 
-                // Create offers for all connections
+                // Create offers for all connections if new joiner
                 if (id === socketIdRef.current) {
                     console.log('I am the new joiner, creating offers...');
                     for (let id2 in connections) {
@@ -845,57 +871,53 @@ export default function VideoMeetComponent() {
                             </div>
                         ) : (
                             <>
-                                {/* Remote videos grid */}
+                                {/* Remote videos grid - FIXED: proper grid layout */}
                                 <div style={{
                                     flex: 1,
                                     display: 'grid',
                                     padding: '20px',
                                     gap: '20px',
-                                    overflow: 'auto'
+                                    overflow: 'auto',
+                                    gridTemplateColumns: videos.length === 1 ? '1fr' : 
+                                        videos.length <= 4 ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)'
                                 }}>
-                                    {videos.map((v, i) => {
-                                        let columns = 1;
-                                        if (videos.length === 1) columns = 1;
-                                        else if (videos.length <= 4) columns = 2;
-                                        else columns = 3;
-                                        return (
-                                            <div
-                                                key={v.socketId}
+                                    {videos.map((v) => (
+                                        <div
+                                            key={v.socketId}
+                                            style={{
+                                                position: 'relative',
+                                                borderRadius: '16px',
+                                                overflow: 'hidden',
+                                                boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
+                                                height: '100%',
+                                                minHeight: '200px'
+                                            }}
+                                        >
+                                            <video
+                                                srcObject={v.stream}
+                                                autoPlay
+                                                playsInline
                                                 style={{
-                                                    position: 'relative',
-                                                    borderRadius: '16px',
-                                                    overflow: 'hidden',
-                                                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
-                                                    gridColumn: `span ${Math.ceil(videos.length / columns)}`
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover'
                                                 }}
-                                            >
-                                                <video
-                                                    ref={el => (videoRef.current[i] = el)}
-                                                    srcObject={v.stream}
-                                                    autoPlay
-                                                    playsInline
-                                                    style={{
-                                                        width: '100%',
-                                                        height: '100%',
-                                                        objectFit: 'cover'
-                                                    }}
-                                                />
-                                                <div style={{
-                                                    position: 'absolute',
-                                                    bottom: 10,
-                                                    left: 10,
-                                                    background: 'rgba(0, 0, 0, 0.7)',
-                                                    color: 'white',
-                                                    padding: '5px 10px',
-                                                    borderRadius: '20px',
-                                                    fontSize: '0.9rem',
-                                                    fontWeight: 600
-                                                }}>
-                                                    {v.name || 'Unknown'}
-                                                </div>
+                                            />
+                                            <div style={{
+                                                position: 'absolute',
+                                                bottom: 10,
+                                                left: 10,
+                                                background: 'rgba(0, 0, 0, 0.7)',
+                                                color: 'white',
+                                                padding: '5px 10px',
+                                                borderRadius: '20px',
+                                                fontSize: '0.9rem',
+                                                fontWeight: 600
+                                            }}>
+                                                {v.name || 'Unknown'}
                                             </div>
-                                        );
-                                    })}
+                                        </div>
+                                    ))}
                                 </div>
                                 {/* Small local video overlay */}
                                 <div style={{
