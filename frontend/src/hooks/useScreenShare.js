@@ -19,22 +19,19 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
             const stream = await navigator.mediaDevices.getDisplayMedia({
                 video: {
                     cursor: 'always',
-                    displaySurface: 'monitor', // Can be 'monitor', 'window', or 'application'
+                    displaySurface: 'monitor',
                 },
-                audio: false, // Set to true if you want to share system audio
+                audio: false,
             });
 
             console.log('✅ Screen stream acquired');
 
-            // Store the screen stream
             setScreenStream(stream);
             setIsScreenSharing(true);
 
-            // Label the track so peers can identify it as screen share
             const screenTrack = stream.getVideoTracks()[0];
-            screenTrack.contentHint = 'detail'; // Optimize for screen content
+            screenTrack.contentHint = 'detail';
 
-            // Add screen track to all existing peer connections
             Object.entries(peerConnections).forEach(([socketId, peerConnection]) => {
                 if (!peerConnection || peerConnection.connectionState === 'closed') {
                     console.warn(`⚠️ Skipping closed connection: ${socketId}`);
@@ -42,10 +39,8 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
                 }
 
                 try {
-                    // Add the screen track (creates a new sender)
                     const sender = peerConnection.addTrack(screenTrack, stream);
                     
-                    // Store sender reference for cleanup
                     if (!screenSendersRef.current[socketId]) {
                         screenSendersRef.current[socketId] = [];
                     }
@@ -57,10 +52,8 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
                 }
             });
 
-            // Notify all peers that screen sharing started
             socket.emit('screen-share-started', socket.id);
 
-            // Handle when user stops sharing via browser UI
             screenTrack.onended = () => {
                 console.log('🛑 Screen share stopped by user');
                 stopScreenShare();
@@ -89,12 +82,10 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
 
         console.log('🛑 Stopping screen share...');
 
-        // Stop all tracks in the screen stream
         screenStream.getTracks().forEach(track => {
             track.stop();
         });
 
-        // Remove screen tracks from all peer connections
         Object.entries(peerConnections).forEach(([socketId, peerConnection]) => {
             if (!peerConnection || peerConnection.connectionState === 'closed') {
                 return;
@@ -111,25 +102,22 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
                     }
                 });
                 
-                // Clear sender references
                 delete screenSendersRef.current[socketId];
             }
         });
 
-        // Notify peers that screen sharing stopped
         if (socket) {
             socket.emit('screen-share-stopped', socket.id);
         }
 
-        // Reset state
         setScreenStream(null);
         setIsScreenSharing(false);
 
         console.log('✅ Screen share stopped successfully');
     }, [screenStream, peerConnections, socket]);
 
-    // Cleanup on unmount
-    React.useEffect(() => {
+    // Cleanup on unmount - FIXED: Removed "React." prefix
+    useEffect(() => {
         return () => {
             if (screenStream) {
                 screenStream.getTracks().forEach(track => track.stop());
