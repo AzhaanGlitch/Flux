@@ -1,4 +1,4 @@
-// hooks/usePeerConnections.js (Enhanced Version - Part 1/2)
+// frontend/src/hooks/usePeerConnections.js 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import io from 'socket.io-client';
 import server from '../environment';
@@ -7,13 +7,6 @@ const peerConfig = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        // PRODUCTION: Add TURN servers
-        // { 
-        //   urls: 'turn:your-turn-server.com:3478',
-        //   username: 'user',
-        //   credential: 'password'
-        // }
     ],
     iceCandidatePoolSize: 10,
 };
@@ -21,23 +14,20 @@ const peerConfig = {
 export const usePeerConnections = (roomCode, username, localStream) => {
     const [videoStreams, setVideoStreams] = useState([]);
     const [connectionError, setConnectionError] = useState(null);
-    const [participantNames, setParticipantNames] = useState({}); // Map socketId to username
+    const [participantNames, setParticipantNames] = useState({});
     
     const socketRef = useRef(null);
     const peerConnectionsRef = useRef({});
     const pendingCandidatesRef = useRef({});
     const localStreamRef = useRef(localStream);
-    const remoteStreamsRef = useRef({}); // Track all streams per peer
+    const remoteStreamsRef = useRef({});
 
     useEffect(() => {
         localStreamRef.current = localStream;
     }, [localStream]);
 
-    // Helper: Detect if a track is screen share
     const isScreenShareTrack = (track) => {
-        // Multiple detection methods for reliability
         const label = track.label.toLowerCase();
-        
         return (
             label.includes('screen') ||
             label.includes('monitor') ||
@@ -54,7 +44,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         const peerConnection = new RTCPeerConnection(peerConfig);
         peerConnectionsRef.current[socketId] = peerConnection;
 
-        // Initialize stream tracking for this peer
         if (!remoteStreamsRef.current[socketId]) {
             remoteStreamsRef.current[socketId] = {
                 camera: null,
@@ -62,12 +51,10 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             };
         }
 
-        // CRITICAL: ontrack handler with screen share detection
         peerConnection.ontrack = (event) => {
             console.log(`📹 TRACK RECEIVED from ${socketId}:`, {
                 kind: event.track.kind,
                 label: event.track.label,
-                contentHint: event.track.contentHint,
                 streams: event.streams.length,
             });
 
@@ -82,14 +69,12 @@ export const usePeerConnections = (roomCode, username, localStream) => {
 
             console.log(`🔍 Track classified as: ${isScreen ? 'SCREEN SHARE' : 'CAMERA'}`);
 
-            // Update stream tracking
             if (isScreen) {
                 remoteStreamsRef.current[socketId].screen = remoteStream;
             } else {
                 remoteStreamsRef.current[socketId].camera = remoteStream;
             }
 
-            // Update video streams state
             setVideoStreams(prev => {
                 const streamType = isScreen ? 'screen' : 'camera';
                 const existingIndex = prev.findIndex(
@@ -107,23 +92,20 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                     type: streamType,
                     name: displayName,
                     isLocal: false,
-                    timestamp: Date.now(), // For animation timing
+                    timestamp: Date.now(),
                 };
 
                 if (existingIndex !== -1) {
-                    // Update existing
                     const updated = [...prev];
                     updated[existingIndex] = newStreamData;
                     console.log(`🔄 Updated ${streamType} stream for ${socketId}`);
                     return updated;
                 } else {
-                    // Add new with animation
                     console.log(`✅ Added new ${streamType} stream for ${socketId}`);
                     return [...prev, newStreamData];
                 }
             });
 
-            // Handle track ending (e.g., screen share stopped)
             track.onended = () => {
                 console.log(`🛑 Track ended from ${socketId}, type: ${isScreen ? 'screen' : 'camera'}`);
                 
@@ -131,14 +113,12 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                     remoteStreamsRef.current[socketId].screen = null;
                 }
 
-                // Remove from video streams
                 setVideoStreams(prev => 
                     prev.filter(v => !(v.socketId === socketId && v.type === (isScreen ? 'screen' : 'camera')))
                 );
             };
         };
 
-        // ICE candidate handling
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
                 console.log(`🧊 Sending ICE candidate to ${socketId}`);
@@ -148,7 +128,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             }
         };
 
-        // Connection state monitoring
         peerConnection.onconnectionstatechange = () => {
             const state = peerConnection.connectionState;
             console.log(`Connection state with ${socketId}: ${state}`);
@@ -159,7 +138,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 console.warn(`⚠️ Connection issue with ${socketId}`);
                 setConnectionError(`Connection lost with participant`);
                 
-                // Attempt reconnection after 2 seconds
                 setTimeout(() => {
                     if (peerConnection.connectionState === 'failed') {
                         console.log(`🔄 Attempting to restart ICE for ${socketId}`);
@@ -173,7 +151,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             console.log(`ICE state with ${socketId}: ${peerConnection.iceConnectionState}`);
         };
 
-        // Add local stream tracks
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => {
                 console.log(`➕ Adding local ${track.kind} track to ${socketId}`);
@@ -184,7 +161,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         return peerConnection;
     }, [participantNames]);
 
-    // Handle incoming signaling messages
     const handleSignal = useCallback(async (fromSocketId, message) => {
         const signal = JSON.parse(message);
         console.log(`📨 Signal from ${fromSocketId}:`, signal.sdp?.type || 'ice-candidate');
@@ -197,7 +173,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
 
         try {
-            // Handle SDP
             if (signal.sdp) {
                 await peerConnection.setRemoteDescription(
                     new RTCSessionDescription(signal.sdp)
@@ -212,7 +187,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                     }));
                 }
 
-                // Add pending ICE candidates
                 if (pendingCandidatesRef.current[fromSocketId]) {
                     console.log(`Adding ${pendingCandidatesRef.current[fromSocketId].length} pending candidates`);
                     
@@ -224,7 +198,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 }
             }
 
-            // Handle ICE candidates
             if (signal.ice) {
                 if (peerConnection.remoteDescription) {
                     await peerConnection.addIceCandidate(new RTCIceCandidate(signal.ice));
@@ -241,12 +214,11 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
     }, [createPeerConnection]);
 
-    // Continue to Part 2...
-// hooks/usePeerConnections.js (Enhanced Version - Part 2/2)
-
-    // Initialize socket connection
     useEffect(() => {
-        if (!roomCode || !username) return;
+        if (!roomCode || !username) {
+            console.log('⏸️ Waiting for roomCode and username...');
+            return;
+        }
 
         console.log('🚀 Initializing socket connection...');
         
@@ -263,7 +235,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         socket.on('connect', () => {
             console.log('✅ Socket connected:', socket.id);
             
-            // Add local stream to state
             if (localStreamRef.current) {
                 setVideoStreams([{
                     socketId: socket.id,
@@ -275,22 +246,18 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 }]);
             }
 
-            // Store own username
             setParticipantNames(prev => ({ ...prev, [socket.id]: username }));
 
-            // Join room and broadcast username
             socket.emit('join-call', roomCode);
             socket.emit('username', username);
         });
 
         socket.on('signal', handleSignal);
 
-        // Handle username broadcasts
         socket.on('username', (socketId, name) => {
             console.log(`📝 Received username: ${name} for ${socketId}`);
             setParticipantNames(prev => ({ ...prev, [socketId]: name }));
             
-            // Update existing video streams with correct name
             setVideoStreams(prev => prev.map(v => 
                 v.socketId === socketId 
                     ? { ...v, name: v.type === 'screen' ? `${name}'s Screen` : name }
@@ -328,31 +295,24 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         socket.on('user-left', (leftSocketId) => {
             console.log(`👋 User left: ${leftSocketId}`);
 
-            // Close and remove peer connection
             if (peerConnectionsRef.current[leftSocketId]) {
                 peerConnectionsRef.current[leftSocketId].close();
                 delete peerConnectionsRef.current[leftSocketId];
             }
 
-            // Clean up stream tracking
             delete remoteStreamsRef.current[leftSocketId];
             delete participantNames[leftSocketId];
 
-            // Remove all streams from this user (camera + screen)
             setVideoStreams(prev => prev.filter(v => v.socketId !== leftSocketId));
         });
 
-        // NEW: Screen share events
         socket.on('screen-share-started', (sharerSocketId) => {
             console.log(`🖥️ ${sharerSocketId} started screen sharing`);
-            // The actual stream will arrive via ontrack
-            // This event can be used for UI notifications if needed
         });
 
         socket.on('screen-share-stopped', (sharerSocketId) => {
             console.log(`🛑 ${sharerSocketId} stopped screen sharing`);
             
-            // Remove screen stream for this user
             setVideoStreams(prev => 
                 prev.filter(v => !(v.socketId === sharerSocketId && v.type === 'screen'))
             );
@@ -367,7 +327,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             setConnectionError('Failed to connect to server');
         });
 
-        // Cleanup
         return () => {
             console.log('🧹 Cleaning up connections...');
             
