@@ -1,4 +1,4 @@
-// pages/VideoMeet.jsx (Refactored - Part 1/3)
+// frontend/src/pages/VideoMeet.jsx - COMPLETE FIXED VERSION (Part 1/2)
 import React, { useEffect, useRef, useState } from 'react';
 import { Badge, IconButton, TextField, Button, Tooltip } from '@mui/material';
 import VideocamIcon from '@mui/icons-material/Videocam';
@@ -11,7 +11,6 @@ import StopScreenShareIcon from '@mui/icons-material/StopScreenShare';
 import ChatIcon from '@mui/icons-material/Chat';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
-import PersonIcon from '@mui/icons-material/Person';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
 
@@ -50,13 +49,13 @@ export default function VideoMeetComponent() {
         isScreenSharing,
         startScreenShare,
         stopScreenShare,
-        screenStream,
     } = useScreenShare(socket, peerConnections, localStream);
 
-    // Initialize media on lobby screen
+    // Initialize media on component mount
     useEffect(() => {
         const initializeMedia = async () => {
             try {
+                console.log('🎥 Requesting media access...');
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         width: { ideal: 1280 },
@@ -69,6 +68,7 @@ export default function VideoMeetComponent() {
                     },
                 });
 
+                console.log('✅ Media access granted');
                 setLocalStream(stream);
 
                 if (localVideoRef.current) {
@@ -76,11 +76,18 @@ export default function VideoMeetComponent() {
                 }
             } catch (error) {
                 console.error('❌ Failed to get media:', error);
-                alert('Camera/microphone access denied. Please enable permissions.');
+                alert('Camera/microphone access denied. Please enable permissions and reload the page.');
             }
         };
 
         initializeMedia();
+
+        // Cleanup
+        return () => {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
+        };
     }, []);
 
     // Update local stream when video/audio toggles
@@ -126,11 +133,6 @@ export default function VideoMeetComponent() {
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
         }
-
-        if (screenStream) {
-            screenStream.getTracks().forEach(track => track.stop());
-        }
-
         window.location.href = '/';
     };
 
@@ -147,6 +149,8 @@ export default function VideoMeetComponent() {
     const connect = () => {
         if (username.trim()) {
             setAskForUsername(false);
+        } else {
+            alert('Please enter your name');
         }
     };
 
@@ -157,15 +161,170 @@ export default function VideoMeetComponent() {
         return 4;
     };
 
-    // Render lobby screen (unchanged for brevity - see original code)
+    // LOBBY SCREEN - Before joining meeting
     if (askForUsername) {
         return (
-            <div style={{/* ... lobby styles ... */ }}>
-                {/* Lobby UI - Keep your existing code */}
+            <div style={{
+                position: 'relative',
+                height: '100vh',
+                background: 'linear-gradient(135deg, #000000 0%, #1a0000 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden'
+            }}>
+                {/* Background effects */}
+                <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'radial-gradient(circle at 50% 50%, rgba(220, 20, 60, 0.1) 0%, transparent 70%)',
+                    zIndex: 0
+                }} />
+
+                <div style={{
+                    position: 'relative',
+                    zIndex: 10,
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    backdropFilter: 'blur(20px)',
+                    borderRadius: '24px',
+                    padding: '3rem',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+                    maxWidth: '500px',
+                    width: '90%',
+                    textAlign: 'center'
+                }}>
+                    <h1 style={{
+                        color: 'white',
+                        fontSize: '2rem',
+                        fontWeight: 700,
+                        marginBottom: '0.5rem'
+                    }}>
+                        Join Meeting
+                    </h1>
+                    <p style={{
+                        color: '#9ca3af',
+                        marginBottom: '2rem',
+                        fontSize: '0.95rem'
+                    }}>
+                        Room: <span style={{ color: '#DC143C', fontWeight: 600 }}>{roomCode}</span>
+                    </p>
+
+                    {/* Local video preview */}
+                    <div style={{
+                        position: 'relative',
+                        marginBottom: '2rem',
+                        borderRadius: '16px',
+                        overflow: 'hidden',
+                        background: '#000'
+                    }}>
+                        <video
+                            ref={localVideoRef}
+                            autoPlay
+                            muted
+                            playsInline
+                            style={{
+                                width: '100%',
+                                height: '300px',
+                                objectFit: 'cover',
+                                transform: 'scaleX(-1)'
+                            }}
+                        />
+                        
+                        {/* Controls overlay */}
+                        <div style={{
+                            position: 'absolute',
+                            bottom: '15px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            display: 'flex',
+                            gap: '10px'
+                        }}>
+                            <IconButton
+                                onClick={() => setVideo(!video)}
+                                sx={{
+                                    background: video ? 'rgba(255, 255, 255, 0.2)' : 'rgba(220, 20, 60, 0.8)',
+                                    color: 'white',
+                                    width: '50px',
+                                    height: '50px',
+                                    '&:hover': {
+                                        background: video ? 'rgba(255, 255, 255, 0.3)' : 'rgba(220, 20, 60, 1)',
+                                    }
+                                }}
+                            >
+                                {video ? <VideocamIcon /> : <VideocamOffIcon />}
+                            </IconButton>
+
+                            <IconButton
+                                onClick={() => setAudio(!audio)}
+                                sx={{
+                                    background: audio ? 'rgba(255, 255, 255, 0.2)' : 'rgba(220, 20, 60, 0.8)',
+                                    color: 'white',
+                                    width: '50px',
+                                    height: '50px',
+                                    '&:hover': {
+                                        background: audio ? 'rgba(255, 255, 255, 0.3)' : 'rgba(220, 20, 60, 1)',
+                                    }
+                                }}
+                            >
+                                {audio ? <MicIcon /> : <MicOffIcon />}
+                            </IconButton>
+                        </div>
+                    </div>
+
+                    {/* Username input */}
+                    <TextField
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && connect()}
+                        placeholder="Enter your name"
+                        variant="outlined"
+                        fullWidth
+                        autoFocus
+                        sx={{
+                            mb: 2,
+                            '& .MuiOutlinedInput-root': {
+                                borderRadius: '12px',
+                                background: 'rgba(255, 255, 255, 0.05)',
+                                color: 'white',
+                                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
+                                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                                '&.Mui-focused fieldset': { borderColor: '#DC143C' }
+                            },
+                            '& input': { color: 'white' },
+                            '& input::placeholder': { color: '#9ca3af', opacity: 1 }
+                        }}
+                    />
+
+                    <Button
+                        onClick={connect}
+                        variant="contained"
+                        fullWidth
+                        disabled={!username.trim()}
+                        sx={{
+                            height: '56px',
+                            borderRadius: '12px',
+                            background: 'linear-gradient(135deg, #8B0000 0%, #DC143C 100%)',
+                            fontWeight: 600,
+                            fontSize: '1rem',
+                            textTransform: 'none',
+                            '&:hover': {
+                                background: 'linear-gradient(135deg, #DC143C 0%, #8B0000 100%)',
+                            },
+                            '&:disabled': {
+                                background: 'rgba(139, 0, 0, 0.3)',
+                                color: 'rgba(255, 255, 255, 0.3)'
+                            }
+                        }}
+                    >
+                        Join Meeting
+                    </Button>
+                </div>
             </div>
         );
     }
 
+    // MEETING ROOM - After joining
     return (
         <div style={{
             position: 'relative',
@@ -391,7 +550,6 @@ export default function VideoMeetComponent() {
                                     '&:disabled': {
                                         background: 'rgba(139, 0, 0, 0.3)',
                                         color: 'rgba(255, 255, 255, 0.3)'
-
                                     }
                                 }}
                             >
@@ -505,15 +663,17 @@ export default function VideoMeetComponent() {
             </div>
         </div>
     );
-
 }
 
-// Video Tile Component with Animations
+// VideoTile Component
 const VideoTile = ({ videoData, index }) => {
     const videoRef = useRef();
+    const [isLoaded, setIsLoaded] = useState(false);
+
     useEffect(() => {
         if (videoRef.current && videoData.stream) {
             videoRef.current.srcObject = videoData.stream;
+            setIsLoaded(true);
         }
     }, [videoData.stream]);
 
@@ -526,15 +686,32 @@ const VideoTile = ({ videoData, index }) => {
                 position: 'relative',
                 borderRadius: '16px',
                 overflow: 'hidden',
-                boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
-                border: isScreenShare ? '3px solid #DC143C' : '2px solid rgba(255, 255, 255, 0.1)',
+                boxShadow: isScreenShare 
+                    ? '0 0 30px rgba(220, 38, 38, 0.5), 0 10px 40px rgba(0, 0, 0, 0.4)'
+                    : '0 10px 30px rgba(0, 0, 0, 0.3)',
+                border: isScreenShare 
+                    ? '3px solid #DC143C' 
+                    : '2px solid rgba(255, 255, 255, 0.1)',
                 background: 'rgba(0, 0, 0, 0.3)',
-                animation: 'fadeIn 0.5s ease-in-out',
-                // Make screen shares larger
                 gridColumn: isScreenShare ? 'span 2' : 'span 1',
                 gridRow: isScreenShare ? 'span 2' : 'span 1',
             }}
         >
+            {!isLoaded && (
+                <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(0, 0, 0, 0.5)',
+                    color: 'white',
+                    zIndex: 1
+                }}>
+                    Loading...
+                </div>
+            )}
+
             <video
                 ref={videoRef}
                 autoPlay
@@ -545,8 +722,11 @@ const VideoTile = ({ videoData, index }) => {
                     height: '100%',
                     objectFit: 'cover',
                     transform,
+                    opacity: isLoaded ? 1 : 0,
+                    transition: 'opacity 0.3s ease',
                 }}
             />
+
             <div style={{
                 position: 'absolute',
                 bottom: 10,
@@ -560,10 +740,31 @@ const VideoTile = ({ videoData, index }) => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '5px',
+                backdropFilter: 'blur(10px)',
             }}>
                 {isScreenShare && '🖥️ '}
                 {videoData.name || 'Unknown'}
+                {videoData.isLocal && ' (You)'}
             </div>
+
+            {isScreenShare && (
+                <div style={{
+                    position: 'absolute',
+                    top: 10,
+                    left: 10,
+                    background: 'linear-gradient(135deg, #DC143C, #8B0000)',
+                    color: 'white',
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    boxShadow: '0 4px 15px rgba(220, 38, 38, 0.5)',
+                }}>
+                    Screen Share
+                </div>
+            )}
         </div>
     );
 };
