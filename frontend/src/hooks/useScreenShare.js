@@ -1,5 +1,5 @@
 // hooks/useScreenShare.js
-import React, { useState, useEffect } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 
 export const useScreenShare = (socket, peerConnections, localStream) => {
     const [isScreenSharing, setIsScreenSharing] = useState(false);
