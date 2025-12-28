@@ -1,4 +1,4 @@
-// frontend/src/hooks/usePeerConnections.js 
+// frontend/src/hooks/usePeerConnections.js
 import { useEffect, useRef, useState, useCallback } from 'react';
 import io from 'socket.io-client';
 import server from '../environment';
@@ -15,15 +15,15 @@ export const usePeerConnections = (roomCode, username, localStream) => {
     const [videoStreams, setVideoStreams] = useState([]);
     const [connectionError, setConnectionError] = useState(null);
     
-    // Refs for state that shouldn't trigger re-renders
+    // REFS (These persist without triggering re-renders)
     const socketRef = useRef(null);
     const peerConnectionsRef = useRef({});
     const pendingCandidatesRef = useRef({});
     const localStreamRef = useRef(localStream);
     const remoteStreamsRef = useRef({});
-    const participantNamesRef = useRef({});
+    const participantNamesRef = useRef({}); // Using Ref for names to prevent dependency loops
 
-    // Update local stream ref when it changes
+    // Keep localStreamRef up to date
     useEffect(() => {
         localStreamRef.current = localStream;
         if (socketRef.current && localStream) {
@@ -33,7 +33,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
     }, [localStream]);
 
-    // Update participant names safely
+    // Helper to safely update names without breaking hooks
     const updateParticipantName = useCallback((id, name) => {
         participantNamesRef.current[id] = name;
         setVideoStreams(prev => prev.map(v => {
@@ -47,15 +47,14 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }));
     }, []);
 
-    // Create Peer Connection
+    // 1. Create Peer Connection (Dependencies REMOVED to fix infinite loop)
     const createPeerConnection = useCallback((socketId) => {
         // Prevent duplicate connections
         if (peerConnectionsRef.current[socketId]) {
-            console.log(`⚠️ Connection already exists for ${socketId}`);
             return peerConnectionsRef.current[socketId];
         }
 
-        console.log(`🔗 Creating peer connection for: ${socketId}`);
+        console.log(`🔗 Creating connection for: ${socketId}`);
         const peerConnection = new RTCPeerConnection(peerConfig);
         peerConnectionsRef.current[socketId] = peerConnection;
 
@@ -63,7 +62,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             remoteStreamsRef.current[socketId] = { camera: null, screen: null };
         }
 
-        // Handle Incoming Tracks
         peerConnection.ontrack = (event) => {
             const remoteStream = event.streams[0];
             if (!remoteStream) return;
@@ -71,7 +69,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             let streamType = 'camera';
             const existingCamera = remoteStreamsRef.current[socketId].camera;
 
-            // Simple Logic: If we already have a camera stream ID, this must be screen
+            // Distinguish Screen Share vs Camera by Stream ID
             if (existingCamera && existingCamera.id !== remoteStream.id) {
                 streamType = 'screen';
             }
@@ -86,14 +84,14 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 const currentName = participantNamesRef.current[socketId] || socketId;
                 const displayName = streamType === 'screen' ? `${currentName}'s Screen` : currentName;
 
-                // Check if this stream is already in the list to avoid flickering
+                // Update existing or add new
                 const existingIdx = prev.findIndex(v => v.socketId === socketId && v.type === streamType);
-
+                
                 if (existingIdx !== -1) {
                     const updated = [...prev];
                     updated[existingIdx] = {
                         ...updated[existingIdx],
-                        stream: remoteStream,
+                        stream: remoteStream, // Update stream reference
                         name: displayName
                     };
                     return updated;
@@ -109,10 +107,8 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 }
             });
 
-            // Handle track removal
             event.track.onended = () => {
-                const allEnded = remoteStream.getTracks().every(t => t.readyState === 'ended');
-                if (allEnded) {
+                if (remoteStream.getTracks().every(t => t.readyState === 'ended')) {
                      setVideoStreams(prev => 
                         prev.filter(v => !(v.socketId === socketId && v.type === streamType))
                     );
@@ -122,7 +118,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             };
         };
 
-        // Handle ICE Candidates
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
                 socketRef.current?.emit('signal', socketId, JSON.stringify({
@@ -131,7 +126,12 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             }
         };
 
-        // Add Local Tracks
+        peerConnection.onconnectionstatechange = () => {
+            if (peerConnection.connectionState === 'failed') {
+                peerConnection.restartIce();
+            }
+        };
+
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => {
                 peerConnection.addTrack(track, localStreamRef.current);
@@ -139,29 +139,23 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
 
         return peerConnection;
-    }, []); 
+    }, []); // Empty dependency array prevents the loop!
 
-    // Handle Signaling Messages (Offer/Answer/ICE)
+    // 2. Handle Signaling
     const handleSignal = useCallback(async (fromSocketId, message) => {
         const signal = JSON.parse(message);
-        
-        // Ensure connection exists
         let peerConnection = peerConnectionsRef.current[fromSocketId];
+
         if (!peerConnection) {
-            // Passive connection creation (we received an offer)
             peerConnection = createPeerConnection(fromSocketId);
         }
 
         try {
             if (signal.sdp) {
-                // GUARD: If we receive an offer but we are already 'stable', it might be a renegotiation or error.
-                // But generally, we just proceed.
-                // The critical guard is stopping collisions before they start (done in user-joined).
-                
-                // If we get an answer but we aren't waiting for one (stable), ignore it to prevent crash.
+                // CRITICAL FIX: If we are 'stable' and receive an answer, ignore it to prevent crash
                 if (signal.sdp.type === 'answer' && peerConnection.signalingState === 'stable') {
-                    console.log('⚠️ Ignoring answer, state is already stable.');
-                    return;
+                    console.log('⚠️ Ignoring answer, connection is stable.');
+                    return; 
                 }
 
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
@@ -197,10 +191,15 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
     }, [createPeerConnection]);
 
-    // Main Socket Logic
+    // 3. Main Connection Logic
     useEffect(() => {
         if (!roomCode || !username) return;
+        
+        // Prevent multiple socket initializations
+        if (socketRef.current) return;
 
+        console.log('🚀 Initializing socket...');
+        
         socketRef.current = io(server, {
             secure: true,
             reconnection: true,
@@ -211,7 +210,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         const socket = socketRef.current;
 
         socket.on('connect', () => {
-            console.log('✅ Connected to server');
+            console.log('✅ Connected');
             if (localStreamRef.current) {
                 setVideoStreams([{
                     socketId: socket.id,
@@ -230,23 +229,20 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         socket.on('signal', handleSignal);
         socket.on('username', (socketId, name) => updateParticipantName(socketId, name));
 
-        // THE CRITICAL FIX: "ID Tie-Breaker"
+        // CRITICAL FIX: The "ID Tie-Breaker"
         socket.on('user-joined', (joinedSocketId, allParticipants) => {
-            // Iterate through all users in the room
             allParticipants.forEach(async (participantId) => {
-                if (participantId === socket.id) return; // Don't call myself
-
-                // Determine who calls whom based on Socket ID
-                // Only the "larger" ID initiates the call.
-                // The "smaller" ID just waits for the offer.
+                if (participantId === socket.id) return;
+                
+                // Only the "larger" ID calls the "smaller" ID. 
+                // This prevents both sides from calling each other at the same time.
                 if (socket.id > participantId) {
-                    console.log(`📞 I am initiating call to ${participantId} (My ID is larger)`);
+                    console.log(`📞 I am initiating call to ${participantId}`);
                     
                     const peerConnection = createPeerConnection(participantId);
                     try {
                         const offer = await peerConnection.createOffer({
-                            offerToReceiveAudio: true, 
-                            offerToReceiveVideo: true,
+                            offerToReceiveAudio: true, offerToReceiveVideo: true,
                         });
                         await peerConnection.setLocalDescription(offer);
                         socket.emit('signal', participantId, JSON.stringify({
@@ -255,8 +251,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                     } catch (e) {
                         console.error('Error creating offer:', e);
                     }
-                } else {
-                     console.log(`⏳ Waiting for call from ${participantId} (My ID is smaller)`);
                 }
             });
         });
@@ -270,10 +264,20 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             setVideoStreams(prev => prev.filter(v => v.socketId !== leftSocketId));
         });
 
+        socket.on('screen-share-stopped', (sharerSocketId) => {
+            setVideoStreams(prev => prev.filter(v => !(v.socketId === sharerSocketId && v.type === 'screen')));
+            if (remoteStreamsRef.current[sharerSocketId]) {
+                remoteStreamsRef.current[sharerSocketId].screen = null;
+            }
+        });
+
+        // Cleanup function
         return () => {
+            console.log('🧹 Cleanup');
             Object.values(peerConnectionsRef.current).forEach(pc => pc.close());
             peerConnectionsRef.current = {};
-            socket.disconnect();
+            if (socket) socket.disconnect();
+            socketRef.current = null;
         };
     }, [roomCode, username, createPeerConnection, handleSignal, updateParticipantName]); 
 
