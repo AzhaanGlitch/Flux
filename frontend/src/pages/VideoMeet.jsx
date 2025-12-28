@@ -18,22 +18,12 @@ import { useNavigate } from 'react-router-dom';
 import { usePeerConnections } from '../hooks/usePeerConnections';
 import { useScreenShare } from '../hooks/useScreenShare';
 
-const VideoTile = React.memo(({ videoData, index }) => {
+const VideoTile = React.memo(({ videoData }) => {
     const videoRef = useRef(null);
     const [isLoaded, setIsLoaded] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
 
-    // Force load if metadata is ready (Fixes infinite loading spinner)
-    useEffect(() => {
-        const checkReadyState = setInterval(() => {
-            if (videoRef.current && videoRef.current.readyState >= 3) {
-                setIsLoaded(true);
-            }
-        }, 500);
-        return () => clearInterval(checkReadyState);
-    }, []);
-
-    // Standard Video Setup
+    // 1. Force Video Play (Fixes loading spinner issue)
     useEffect(() => {
         const videoElement = videoRef.current;
         if (!videoElement || !videoData.stream) return;
@@ -41,59 +31,57 @@ const VideoTile = React.memo(({ videoData, index }) => {
         videoElement.srcObject = videoData.stream;
         videoElement.autoplay = true;
         videoElement.playsInline = true;
-        videoElement.muted = videoData.isLocal; // Local must be muted to prevent echo
+        videoElement.muted = videoData.isLocal;
 
-        const onPlaying = () => setIsLoaded(true);
-        videoElement.addEventListener('playing', onPlaying);
-        
-        // Brute force play attempt
         const attemptPlay = async () => {
             try {
                 await videoElement.play();
+                setIsLoaded(true);
             } catch (e) {
-                console.log("Autoplay blocked, waiting for interaction");
+                console.warn("Autoplay blocked, waiting for user interaction");
             }
         };
         attemptPlay();
 
-        return () => {
-            videoElement.removeEventListener('playing', onPlaying);
-        };
+        // Safety check: if video is actually playing but event didn't fire
+        const checkInterval = setInterval(() => {
+            if (videoElement.currentTime > 0 && !videoElement.paused && !videoElement.ended) {
+                setIsLoaded(true);
+            }
+        }, 500);
+
+        return () => clearInterval(checkInterval);
     }, [videoData.stream, videoData.isLocal]);
 
-    // Audio Level Detection
+    // 2. Audio Level Indicator
     useEffect(() => {
-        if (!videoData.stream || videoData.type === 'screen' || videoData.isLocal) return;
-        
-        let audioContext;
-        let analyser;
-        let animationId;
+        if (!videoData.stream || videoData.isLocal || videoData.type === 'screen') return;
 
+        let audioContext, analyser, animationId;
         try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            audioContext = new AudioContext();
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
             analyser = audioContext.createAnalyser();
             const source = audioContext.createMediaStreamSource(videoData.stream);
             source.connect(analyser);
             analyser.fftSize = 256;
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-            const checkVolume = () => {
+            const detectVolume = () => {
                 analyser.getByteFrequencyData(dataArray);
                 const volume = dataArray.reduce((a, b) => a + b) / dataArray.length;
-                setIsSpeaking(volume > 15);
-                animationId = requestAnimationFrame(checkVolume);
+                setIsSpeaking(volume > 15); // Threshold
+                animationId = requestAnimationFrame(detectVolume);
             };
-            checkVolume();
+            detectVolume();
         } catch (e) {
-            console.error("Audio Context Error", e);
+            console.error("Audio context error:", e);
         }
 
         return () => {
             if (animationId) cancelAnimationFrame(animationId);
-            if (audioContext && audioContext.state !== 'closed') audioContext.close();
+            if (audioContext?.state !== 'closed') audioContext?.close();
         };
-    }, [videoData.stream, videoData.type, videoData.isLocal]);
+    }, [videoData.stream, videoData.isLocal, videoData.type]);
 
     const isScreenShare = videoData.type === 'screen';
     const transform = videoData.isLocal && !isScreenShare ? 'scaleX(-1)' : 'none';
@@ -103,6 +91,7 @@ const VideoTile = React.memo(({ videoData, index }) => {
             position: 'relative', width: '100%', height: '100%', minHeight: '250px',
             borderRadius: '16px', overflow: 'hidden', backgroundColor: '#1a1a1a',
             border: isScreenShare ? '3px solid #DC143C' : isSpeaking ? '3px solid #10b981' : '2px solid rgba(255, 255, 255, 0.1)',
+            transition: 'border-color 0.2s',
             gridColumn: isScreenShare ? 'span 2' : 'span 1',
             gridRow: isScreenShare ? 'span 2' : 'span 1',
         }}>
@@ -116,13 +105,12 @@ const VideoTile = React.memo(({ videoData, index }) => {
                     <p>Loading...</p>
                 </div>
             )}
-            <div style={{ position: 'absolute', bottom: 12, left: 12, background: 'rgba(0,0,0,0.7)', padding: '5px 10px', borderRadius: '15px', color: 'white', fontSize: '0.9rem' }}>
+            <div style={{ position: 'absolute', bottom: 12, left: 12, background: 'rgba(0,0,0,0.7)', padding: '5px 12px', borderRadius: '15px', color: 'white', fontSize: '0.9rem', backdropFilter: 'blur(4px)' }}>
                 {videoData.name || 'Unknown'} {videoData.isLocal && '(You)'}
             </div>
         </div>
     );
 });
-VideoTile.displayName = 'VideoTile';
 
 export default function VideoMeetComponent() {
     const navigate = useNavigate();
@@ -159,7 +147,6 @@ export default function VideoMeetComponent() {
                 setMediaReady(true);
                 if (localVideoRef.current) {
                     localVideoRef.current.srcObject = stream;
-                    localVideoRef.current.play().catch(e => console.error(e));
                 }
             } catch (error) { alert("Camera access denied."); }
         };
@@ -175,6 +162,7 @@ export default function VideoMeetComponent() {
     useEffect(() => {
         if (localVideoRef.current && localStream) {
             localVideoRef.current.srcObject = localStream;
+            localVideoRef.current.play().catch(() => {});
         }
     }, [localStream, askForUsername]);
 
@@ -185,7 +173,6 @@ export default function VideoMeetComponent() {
         }
     }, [video, audio, localStream]);
 
-    // Chat Logic
     useEffect(() => {
         if (!socket) return;
         const handleChat = (data, sender, socketIdSender) => {
@@ -205,7 +192,7 @@ export default function VideoMeetComponent() {
 
     const handleEndCall = () => {
         if (localStream) localStream.getTracks().forEach(t => t.stop());
-        navigate('/home');
+        navigate('/home'); // Fixes 404
     };
 
     const handleCopyLink = async () => {
@@ -226,7 +213,7 @@ export default function VideoMeetComponent() {
             <div style={{ height: '100vh', background: 'linear-gradient(135deg, #000, #1a0000)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ background: 'rgba(255,255,255,0.05)', padding: '3rem', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.1)', textAlign: 'center', width: '90%', maxWidth: '450px' }}>
                     <h2 style={{ color: 'white', marginBottom: '20px' }}>Join Room: <span style={{ color: '#DC143C' }}>{roomCode}</span></h2>
-                    <div style={{ height: '250px', background: 'black', borderRadius: '16px', overflow: 'hidden', marginBottom: '20px', position: 'relative' }}>
+                    <div style={{ height: '250px', background: 'black', borderRadius: '16px', overflow: 'hidden', marginBottom: '20px' }}>
                         {mediaReady ? <video ref={localVideoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} /> : <p style={{color:'white', paddingTop:'100px'}}>Loading Camera...</p>}
                     </div>
                     <TextField fullWidth value={username} onChange={e => setUsername(e.target.value)} placeholder="Your Name" sx={{ input: { color: 'white' }, fieldset: { borderColor: 'rgba(255,255,255,0.3)' }, mb: 2 }} />
@@ -238,7 +225,6 @@ export default function VideoMeetComponent() {
 
     return (
         <div style={{ height: '100vh', background: '#0a0a0a', position: 'relative', overflow: 'hidden' }}>
-            {/* Header */}
             <div style={{ position: 'absolute', top: 0, width: '100%', height: '60px', background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
                 <div style={{ background: 'rgba(255,255,255,0.1)', padding: '5px 15px', borderRadius: '20px', color: 'white', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     {window.location.href}
@@ -246,12 +232,10 @@ export default function VideoMeetComponent() {
                 </div>
             </div>
             
-            {/* Video Grid */}
             <div style={{ position: 'absolute', top: 60, bottom: 80, width: '100%', display: 'grid', gridTemplateColumns: `repeat(${getGridColumns(videoStreams.length)}, 1fr)`, gap: '15px', padding: '15px', overflowY: 'auto' }}>
-                {videoStreams.map((v, i) => <VideoTile key={v.socketId + v.type} videoData={v} index={i} />)}
+                {videoStreams.map((v, i) => <VideoTile key={v.socketId + v.type} videoData={v} />)}
             </div>
 
-            {/* Chat Modal */}
             {showModal && (
                 <div style={{ position: 'absolute', top: 70, right: 20, width: '300px', bottom: 100, background: 'rgba(0,0,0,0.9)', border: '1px solid #333', borderRadius: '10px', display: 'flex', flexDirection: 'column', zIndex: 20 }}>
                     <div style={{ padding: '10px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', color: 'white' }}>
@@ -272,7 +256,6 @@ export default function VideoMeetComponent() {
                 </div>
             )}
 
-            {/* Footer Controls */}
             <div style={{ position: 'absolute', bottom: 0, width: '100%', height: '80px', background: 'rgba(0,0,0,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px' }}>
                 <IconButton onClick={() => setVideo(!video)} sx={{ bgcolor: video ? 'rgba(255,255,255,0.1)' : '#DC143C', color: 'white' }}>{video ? <VideocamIcon /> : <VideocamOffIcon />}</IconButton>
                 <IconButton onClick={() => setAudio(!audio)} sx={{ bgcolor: audio ? 'rgba(255,255,255,0.1)' : '#DC143C', color: 'white' }}>{audio ? <MicIcon /> : <MicOffIcon />}</IconButton>
