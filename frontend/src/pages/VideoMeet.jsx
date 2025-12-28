@@ -1,4 +1,4 @@
-// frontend/src/pages/VideoMeet.jsx - COMPLETE FIXED VERSION
+// frontend/src/pages/VideoMeet.jsx - COMPLETE FIX
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Badge, IconButton, TextField, Button, Tooltip } from '@mui/material';
@@ -19,88 +19,96 @@ import { usePeerConnections } from '../hooks/usePeerConnections';
 import { useScreenShare } from '../hooks/useScreenShare';
 
 // ============================================================================
-// VIDEO TILE COMPONENT - PROPERLY DEFINED
+// VIDEO TILE COMPONENT - CRITICAL FIX
 // ============================================================================
 const VideoTile = React.memo(({ videoData, index }) => {
-    const videoRef = useRef();
+    const videoRef = useRef(null);
     const [isLoaded, setIsLoaded] = useState(false);
-    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [playError, setPlayError] = useState(null);
 
-    // Attach stream to video element
+    // CRITICAL: Attach stream immediately and force play
     useEffect(() => {
-        if (videoRef.current && videoData.stream) {
-            console.log(`🎬 Attaching stream to video element for ${videoData.socketId}`);
-            videoRef.current.srcObject = videoData.stream;
+        const videoElement = videoRef.current;
+        
+        if (!videoElement || !videoData.stream) {
+            console.warn('Missing video element or stream');
+            return;
+        }
 
-            const handleLoadedMetadata = () => {
-                console.log('✅ Video metadata loaded for:', videoData.socketId);
+        console.log(`🎬 Setting up video for ${videoData.socketId}`);
+        
+        // Set srcObject
+        videoElement.srcObject = videoData.stream;
+        
+        // Set attributes to ensure playback
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
+        videoElement.muted = videoData.isLocal;
+        
+        // Multiple play strategies
+        const attemptPlay = async () => {
+            try {
+                await videoElement.play();
+                console.log('✅ Video playing:', videoData.socketId);
                 setIsLoaded(true);
+                setPlayError(null);
+            } catch (error) {
+                console.log('⚠️ Play attempt failed:', error.name);
+                setPlayError(error.name);
                 
-                // Force play
-                videoRef.current.play().catch(err => {
-                    console.error('Play error:', err);
-                });
-            };
-
-            const handleCanPlay = () => {
-                console.log('✅ Video can play:', videoData.socketId);
-                videoRef.current.play().catch(err => {
-                    console.error('Play error:', err);
-                });
-            };
-
-            videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata);
-            videoRef.current.addEventListener('canplay', handleCanPlay);
-
-            // Immediate play attempt
-            videoRef.current.play().catch(err => {
-                console.log('Initial play prevented (expected):', err.message);
-            });
-
-            return () => {
-                if (videoRef.current) {
-                    videoRef.current.removeEventListener('loadedmetadata', handleLoadedMetadata);
-                    videoRef.current.removeEventListener('canplay', handleCanPlay);
+                // Retry after user interaction
+                if (error.name === 'NotAllowedError') {
+                    const playOnClick = async () => {
+                        try {
+                            await videoElement.play();
+                            setIsLoaded(true);
+                            document.removeEventListener('click', playOnClick);
+                        } catch (e) {
+                            console.error('Play failed after click:', e);
+                        }
+                    };
+                    document.addEventListener('click', playOnClick, { once: true });
                 }
-            };
-        }
-    }, [videoData.stream, videoData.socketId]);
+            }
+        };
 
-    // Audio level detection for speaking indicator
-    useEffect(() => {
-        if (!videoData.stream || videoData.type === 'screen' || videoData.isLocal) return;
+        // Event listeners
+        const onLoadedMetadata = () => {
+            console.log('📊 Metadata loaded:', videoData.socketId);
+            attemptPlay();
+        };
 
-        try {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const analyser = audioContext.createAnalyser();
-            const microphone = audioContext.createMediaStreamSource(videoData.stream);
-            
-            analyser.fftSize = 512;
-            analyser.smoothingTimeConstant = 0.8;
-            microphone.connect(analyser);
+        const onLoadedData = () => {
+            console.log('📦 Data loaded:', videoData.socketId);
+            setIsLoaded(true);
+        };
 
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            let animationId;
+        const onCanPlay = () => {
+            console.log('▶️ Can play:', videoData.socketId);
+            attemptPlay();
+        };
 
-            const detectSpeaking = () => {
-                analyser.getByteFrequencyData(dataArray);
-                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-                
-                setIsSpeaking(average > 20);
-                
-                animationId = requestAnimationFrame(detectSpeaking);
-            };
+        const onPlaying = () => {
+            console.log('🎥 Playing:', videoData.socketId);
+            setIsLoaded(true);
+        };
 
-            detectSpeaking();
+        videoElement.addEventListener('loadedmetadata', onLoadedMetadata);
+        videoElement.addEventListener('loadeddata', onLoadedData);
+        videoElement.addEventListener('canplay', onCanPlay);
+        videoElement.addEventListener('playing', onPlaying);
 
-            return () => {
-                cancelAnimationFrame(animationId);
-                audioContext.close();
-            };
-        } catch (error) {
-            console.error('Audio analysis error:', error);
-        }
-    }, [videoData.stream, videoData.type, videoData.isLocal]);
+        // Immediate play attempt
+        attemptPlay();
+
+        // Cleanup
+        return () => {
+            videoElement.removeEventListener('loadedmetadata', onLoadedMetadata);
+            videoElement.removeEventListener('loadeddata', onLoadedData);
+            videoElement.removeEventListener('canplay', onCanPlay);
+            videoElement.removeEventListener('playing', onPlaying);
+        };
+    }, [videoData.stream, videoData.socketId, videoData.isLocal]);
 
     const isScreenShare = videoData.type === 'screen';
     const transform = videoData.isLocal && !isScreenShare ? 'scaleX(-1)' : 'none';
@@ -109,94 +117,84 @@ const VideoTile = React.memo(({ videoData, index }) => {
         <div
             style={{
                 position: 'relative',
+                width: '100%',
+                height: '100%',
+                minHeight: '250px',
                 borderRadius: '16px',
                 overflow: 'hidden',
+                backgroundColor: '#1a1a1a',
                 boxShadow: isScreenShare
-                    ? '0 0 30px rgba(220, 38, 38, 0.5), 0 10px 40px rgba(0, 0, 0, 0.4)'
+                    ? '0 0 30px rgba(220, 38, 38, 0.5)'
                     : '0 10px 30px rgba(0, 0, 0, 0.3)',
                 border: isScreenShare
                     ? '3px solid #DC143C'
-                    : isSpeaking 
-                        ? '3px solid #10b981'
-                        : '2px solid rgba(255, 255, 255, 0.1)',
-                background: 'rgba(0, 0, 0, 0.5)',
+                    : '2px solid rgba(255, 255, 255, 0.1)',
                 gridColumn: isScreenShare ? 'span 2' : 'span 1',
                 gridRow: isScreenShare ? 'span 2' : 'span 1',
-                minHeight: '200px',
-                transition: 'all 0.3s ease',
             }}
         >
-            {/* Loading indicator */}
-            {!isLoaded && (
-                <div style={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'rgba(0, 0, 0, 0.8)',
-                    color: 'white',
-                    zIndex: 1
-                }}>
-                    <div style={{ textAlign: 'center' }}>
-                        <div style={{
-                            width: '40px',
-                            height: '40px',
-                            border: '4px solid rgba(255,255,255,0.3)',
-                            borderTop: '4px solid white',
-                            borderRadius: '50%',
-                            animation: 'spin 1s linear infinite',
-                            margin: '0 auto 10px'
-                        }} />
-                        <p style={{ margin: 0 }}>Loading video...</p>
-                    </div>
-                </div>
-            )}
-
-            {/* Video element */}
+            {/* Video element - CRITICAL STYLES */}
             <video
                 ref={videoRef}
                 autoPlay
                 playsInline
                 muted={videoData.isLocal}
                 style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
                     width: '100%',
                     height: '100%',
                     objectFit: 'cover',
                     transform,
-                    opacity: isLoaded ? 1 : 0,
-                    transition: 'opacity 0.3s ease',
+                    backgroundColor: '#000',
                     display: 'block',
                 }}
             />
 
-            {/* Speaking indicator ring */}
-            {isSpeaking && !videoData.isLocal && (
+            {/* Loading overlay */}
+            {!isLoaded && (
                 <div style={{
                     position: 'absolute',
-                    inset: '5px',
-                    border: '3px solid #10b981',
-                    borderRadius: '16px',
-                    pointerEvents: 'none',
-                    animation: 'pulse 1.5s ease-in-out infinite',
-                }} />
+                    inset: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(0, 0, 0, 0.8)',
+                    color: 'white',
+                    zIndex: 10,
+                }}>
+                    <div style={{
+                        width: '40px',
+                        height: '40px',
+                        border: '4px solid rgba(255,255,255,0.2)',
+                        borderTop: '4px solid white',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite',
+                        marginBottom: '12px'
+                    }} />
+                    <p style={{ fontSize: '0.9rem', margin: 0 }}>
+                        {playError === 'NotAllowedError' 
+                            ? 'Click anywhere to start video' 
+                            : 'Loading video...'}
+                    </p>
+                </div>
             )}
 
             {/* Participant label */}
             <div style={{
                 position: 'absolute',
-                bottom: 10,
-                left: 10,
-                background: 'rgba(0, 0, 0, 0.7)',
+                bottom: 12,
+                left: 12,
+                background: 'rgba(0, 0, 0, 0.75)',
                 color: 'white',
-                padding: '5px 10px',
+                padding: '6px 12px',
                 borderRadius: '20px',
                 fontSize: '0.9rem',
                 fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
                 backdropFilter: 'blur(10px)',
+                zIndex: 20,
             }}>
                 {isScreenShare && '🖥️ '}
                 {videoData.name || 'Unknown'}
@@ -207,17 +205,18 @@ const VideoTile = React.memo(({ videoData, index }) => {
             {isScreenShare && (
                 <div style={{
                     position: 'absolute',
-                    top: 10,
-                    left: 10,
+                    top: 12,
+                    left: 12,
                     background: 'linear-gradient(135deg, #DC143C, #8B0000)',
                     color: 'white',
-                    padding: '6px 12px',
+                    padding: '6px 14px',
                     borderRadius: '8px',
                     fontSize: '0.75rem',
                     fontWeight: 700,
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px',
                     boxShadow: '0 4px 15px rgba(220, 38, 38, 0.5)',
+                    zIndex: 20,
                 }}>
                     Screen Share
                 </div>
@@ -229,10 +228,9 @@ const VideoTile = React.memo(({ videoData, index }) => {
 VideoTile.displayName = 'VideoTile';
 
 // ============================================================================
-// MAIN VIDEO MEET COMPONENT
+// MAIN COMPONENT
 // ============================================================================
 export default function VideoMeetComponent() {
-    // State management
     const [username, setUsername] = useState('');
     const [askForUsername, setAskForUsername] = useState(true);
     const [localStream, setLocalStream] = useState(null);
@@ -245,12 +243,10 @@ export default function VideoMeetComponent() {
     const [copied, setCopied] = useState(false);
     const [mediaReady, setMediaReady] = useState(false);
 
-    // Refs
-    const localVideoRef = useRef();
+    const localVideoRef = useRef(null);
     const streamInitializedRef = useRef(false);
     const roomCode = window.location.pathname.substring(1);
 
-    // Hooks - Initialize after username is set
     const {
         videoStreams,
         connectionError,
@@ -268,18 +264,15 @@ export default function VideoMeetComponent() {
         stopScreenShare,
     } = useScreenShare(socket, peerConnections, localStream);
 
-    // Initialize media ONCE on component mount
+    // Initialize media
     useEffect(() => {
         if (streamInitializedRef.current) return;
 
-        const initializeMedia = async () => {
+        const initMedia = async () => {
             try {
-                console.log('🎥 Requesting media access...');
+                console.log('🎥 Requesting media...');
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    },
+                    video: { width: 1280, height: 720 },
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
@@ -287,83 +280,58 @@ export default function VideoMeetComponent() {
                     },
                 });
 
-                console.log('✅ Media access granted:', stream.getTracks());
+                console.log('✅ Media granted:', stream.getTracks().map(t => t.kind));
                 streamInitializedRef.current = true;
                 setLocalStream(stream);
                 setMediaReady(true);
 
                 if (localVideoRef.current) {
                     localVideoRef.current.srcObject = stream;
-                    localVideoRef.current.play().catch(err => {
-                        console.log('Autoplay prevented (expected):', err);
-                    });
+                    localVideoRef.current.play().catch(console.log);
                 }
             } catch (error) {
-                console.error('❌ Failed to get media:', error);
-                alert('Camera/microphone access denied. Please enable permissions and reload the page.');
+                console.error('❌ Media error:', error);
+                alert('Camera/microphone access denied. Please enable and reload.');
             }
         };
 
-        initializeMedia();
+        initMedia();
 
         return () => {
-            console.log('🧹 Component unmounting - cleaning up media');
             if (localStream && streamInitializedRef.current) {
-                localStream.getTracks().forEach(track => {
-                    track.stop();
-                    console.log('Stopped track:', track.kind);
-                });
+                localStream.getTracks().forEach(t => t.stop());
                 streamInitializedRef.current = false;
             }
         };
     }, []);
 
-    // Re-attach video element when switching screens
+    // Re-attach local video
     useEffect(() => {
         if (localVideoRef.current && localStream) {
-            console.log('Re-attaching local stream to video element');
             localVideoRef.current.srcObject = localStream;
-            localVideoRef.current.play().catch(err => {
-                console.log('Play prevented:', err);
-            });
+            localVideoRef.current.play().catch(console.log);
         }
     }, [localStream, askForUsername]);
 
-    // Update track enabled state
+    // Toggle tracks
     useEffect(() => {
         if (!localStream) return;
 
-        console.log('Updating tracks - Video:', video, 'Audio:', audio);
-
-        localStream.getVideoTracks().forEach(track => {
-            track.enabled = video;
-            console.log('Video track enabled:', track.enabled);
-        });
-
-        localStream.getAudioTracks().forEach(track => {
-            track.enabled = audio;
-            console.log('Audio track enabled:', track.enabled);
-        });
+        localStream.getVideoTracks().forEach(t => { t.enabled = video; });
+        localStream.getAudioTracks().forEach(t => { t.enabled = audio; });
     }, [video, audio, localStream]);
 
-    // Chat message handler
+    // Chat
     useEffect(() => {
         if (!socket) return;
-
-        const handleChatMessage = (data, sender, socketIdSender) => {
+        const handleChat = (data, sender, socketIdSender) => {
             setMessages(prev => [...prev, { sender, data }]);
-
-            if (socketIdSender !== socket.id) {
-                setNewMessages(prev => prev + 1);
-            }
+            if (socketIdSender !== socket.id) setNewMessages(prev => prev + 1);
         };
-
-        socket.on('chat-message', handleChatMessage);
-
-        return () => socket.off('chat-message', handleChatMessage);
+        socket.on('chat-message', handleChat);
+        return () => socket.off('chat-message', handleChat);
     }, [socket]);
 
-    // Event handlers
     const sendMessage = useCallback(() => {
         if (message.trim() && socket) {
             socket.emit('chat-message', message, username);
@@ -371,14 +339,8 @@ export default function VideoMeetComponent() {
         }
     }, [message, socket, username]);
 
-    const handleKeyPress = useCallback((e) => {
-        if (e.key === 'Enter') sendMessage();
-    }, [sendMessage]);
-
     const handleEndCall = useCallback(() => {
-        if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
-        }
+        if (localStream) localStream.getTracks().forEach(t => t.stop());
         window.location.href = '/home';
     }, [localStream]);
 
@@ -388,13 +350,13 @@ export default function VideoMeetComponent() {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch (err) {
-            console.error('Failed to copy:', err);
+            console.error('Copy failed:', err);
         }
     };
 
     const connect = useCallback(() => {
         if (username.trim()) {
-            console.log('👤 Joining meeting with username:', username);
+            console.log('👤 Joining:', username);
             setAskForUsername(false);
         } else {
             alert('Please enter your name');
@@ -408,52 +370,30 @@ export default function VideoMeetComponent() {
         return 4;
     };
 
-    // LOBBY SCREEN
+    // LOBBY
     if (askForUsername) {
         return (
             <div style={{
-                position: 'relative',
                 height: '100vh',
-                background: 'linear-gradient(135deg, #000000 0%, #1a0000 100%)',
+                background: 'linear-gradient(135deg, #000 0%, #1a0000 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                overflow: 'hidden'
             }}>
                 <div style={{
-                    position: 'absolute',
-                    inset: 0,
-                    background: 'radial-gradient(circle at 50% 50%, rgba(220, 20, 60, 0.1) 0%, transparent 70%)',
-                    zIndex: 0
-                }} />
-
-                <div style={{
-                    position: 'relative',
-                    zIndex: 10,
                     background: 'rgba(255, 255, 255, 0.05)',
                     backdropFilter: 'blur(20px)',
                     borderRadius: '24px',
                     padding: '3rem',
                     border: '1px solid rgba(255, 255, 255, 0.1)',
-                    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
                     maxWidth: '500px',
                     width: '90%',
-                    textAlign: 'center'
                 }}>
-                    <h1 style={{
-                        color: 'white',
-                        fontSize: '2rem',
-                        fontWeight: 700,
-                        marginBottom: '0.5rem'
-                    }}>
+                    <h1 style={{ color: 'white', fontSize: '2rem', marginBottom: '0.5rem' }}>
                         Join Meeting
                     </h1>
-                    <p style={{
-                        color: '#9ca3af',
-                        marginBottom: '2rem',
-                        fontSize: '0.95rem'
-                    }}>
-                        Room: <span style={{ color: '#DC143C', fontWeight: 600 }}>{roomCode}</span>
+                    <p style={{ color: '#9ca3af', marginBottom: '2rem' }}>
+                        Room: <span style={{ color: '#DC143C' }}>{roomCode}</span>
                     </p>
 
                     <div style={{
@@ -461,28 +401,29 @@ export default function VideoMeetComponent() {
                         marginBottom: '2rem',
                         borderRadius: '16px',
                         overflow: 'hidden',
-                        background: '#000'
+                        background: '#000',
+                        minHeight: '300px',
                     }}>
                         {!mediaReady ? (
                             <div style={{
-                                width: '100%',
                                 height: '300px',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                flexDirection: 'column',
                                 color: 'white',
-                                gap: '1rem'
                             }}>
-                                <div style={{
-                                    width: '40px',
-                                    height: '40px',
-                                    border: '4px solid rgba(255,255,255,0.3)',
-                                    borderTop: '4px solid white',
-                                    borderRadius: '50%',
-                                    animation: 'spin 1s linear infinite'
-                                }} />
-                                <p>Loading camera...</p>
+                                <div>
+                                    <div style={{
+                                        width: '40px',
+                                        height: '40px',
+                                        border: '4px solid rgba(255,255,255,0.3)',
+                                        borderTop: '4px solid white',
+                                        borderRadius: '50%',
+                                        animation: 'spin 1s linear infinite',
+                                        margin: '0 auto 10px'
+                                    }} />
+                                    <p>Loading camera...</p>
+                                </div>
                             </div>
                         ) : (
                             <video
@@ -511,16 +452,11 @@ export default function VideoMeetComponent() {
                                 onClick={() => setVideo(!video)}
                                 disabled={!mediaReady}
                                 sx={{
-                                    background: video ? 'rgba(255, 255, 255, 0.2)' : 'rgba(220, 20, 60, 0.8)',
+                                    background: video ? 'rgba(255,255,255,0.2)' : 'rgba(220,20,60,0.8)',
                                     color: 'white',
-                                    width: '50px',
-                                    height: '50px',
-                                    '&:hover': {
-                                        background: video ? 'rgba(255, 255, 255, 0.3)' : 'rgba(220, 20, 60, 1)',
-                                    },
-                                    '&:disabled': {
-                                        opacity: 0.5
-                                    }
+                                    width: 50,
+                                    height: 50,
+                                    '&:hover': { background: video ? 'rgba(255,255,255,0.3)' : 'rgba(220,20,60,1)' }
                                 }}
                             >
                                 {video ? <VideocamIcon /> : <VideocamOffIcon />}
@@ -530,16 +466,11 @@ export default function VideoMeetComponent() {
                                 onClick={() => setAudio(!audio)}
                                 disabled={!mediaReady}
                                 sx={{
-                                    background: audio ? 'rgba(255, 255, 255, 0.2)' : 'rgba(220, 20, 60, 0.8)',
+                                    background: audio ? 'rgba(255,255,255,0.2)' : 'rgba(220,20,60,0.8)',
                                     color: 'white',
-                                    width: '50px',
-                                    height: '50px',
-                                    '&:hover': {
-                                        background: audio ? 'rgba(255, 255, 255, 0.3)' : 'rgba(220, 20, 60, 1)',
-                                    },
-                                    '&:disabled': {
-                                        opacity: 0.5
-                                    }
+                                    width: 50,
+                                    height: 50,
+                                    '&:hover': { background: audio ? 'rgba(255,255,255,0.3)' : 'rgba(220,20,60,1)' }
                                 }}
                             >
                                 {audio ? <MicIcon /> : <MicOffIcon />}
@@ -552,43 +483,32 @@ export default function VideoMeetComponent() {
                         onChange={(e) => setUsername(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && connect()}
                         placeholder="Enter your name"
-                        variant="outlined"
                         fullWidth
                         autoFocus
                         sx={{
                             mb: 2,
                             '& .MuiOutlinedInput-root': {
                                 borderRadius: '12px',
-                                background: 'rgba(255, 255, 255, 0.05)',
+                                background: 'rgba(255,255,255,0.05)',
                                 color: 'white',
-                                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.2)' },
-                                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.3)' },
+                                '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
                                 '&.Mui-focused fieldset': { borderColor: '#DC143C' }
-                            },
-                            '& input': { color: 'white' },
-                            '& input::placeholder': { color: '#9ca3af', opacity: 1 }
+                            }
                         }}
                     />
 
                     <Button
                         onClick={connect}
-                        variant="contained"
                         fullWidth
                         disabled={!username.trim() || !mediaReady}
                         sx={{
                             height: '56px',
                             borderRadius: '12px',
-                            background: 'linear-gradient(135deg, #8B0000 0%, #DC143C 100%)',
+                            background: 'linear-gradient(135deg, #8B0000, #DC143C)',
+                            color: 'white',
                             fontWeight: 600,
-                            fontSize: '1rem',
-                            textTransform: 'none',
-                            '&:hover': {
-                                background: 'linear-gradient(135deg, #DC143C 0%, #8B0000 100%)',
-                            },
-                            '&:disabled': {
-                                background: 'rgba(139, 0, 0, 0.3)',
-                                color: 'rgba(255, 255, 255, 0.3)'
-                            }
+                            '&:hover': { background: 'linear-gradient(135deg, #DC143C, #8B0000)' },
+                            '&:disabled': { background: 'rgba(139,0,0,0.3)' }
                         }}
                     >
                         {!mediaReady ? 'Loading...' : 'Join Meeting'}
@@ -603,7 +523,7 @@ export default function VideoMeetComponent() {
         <div style={{
             position: 'relative',
             height: '100vh',
-            background: 'linear-gradient(135deg, #000000 0%, #0a0000 100%)',
+            background: '#0a0a0a',
             overflow: 'hidden'
         }}>
             {/* Header */}
@@ -613,59 +533,44 @@ export default function VideoMeetComponent() {
                 left: 0,
                 right: 0,
                 height: '70px',
-                background: 'rgba(0, 0, 0, 0.8)',
-                backdropFilter: 'blur(20px)',
-                borderBottom: '1px solid rgba(139, 0, 0, 0.3)',
+                background: 'rgba(0,0,0,0.8)',
+                borderBottom: '1px solid rgba(139,0,0,0.3)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '0 20px',
                 zIndex: 200
             }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    maxWidth: '600px',
-                    width: '100%'
-                }}>
-                    <TextField
-                        value={window.location.href}
-                        InputProps={{
-                            readOnly: true,
-                            sx: {
-                                borderRadius: '20px',
-                                background: 'rgba(255, 255, 255, 0.05)',
-                                color: 'white',
-                                height: '40px',
-                                '& fieldset': { border: 'none' },
-                                '& input': { color: 'white', fontSize: '0.9rem' }
-                            }
-                        }}
-                        variant="outlined"
-                        fullWidth
-                        size="small"
-                    />
-                    <Tooltip title={copied ? "Copied!" : "Copy link"} arrow>
-                        <IconButton
-                            onClick={handleCopyLink}
-                            sx={{
-                                background: copied ? 'rgba(76, 175, 80, 0.2)' : 'rgba(255, 255, 255, 0.15)',
-                                color: copied ? '#4CAF50' : 'white',
-                                width: '40px',
-                                height: '40px',
-                                '&:hover': {
-                                    background: copied ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255, 255, 255, 0.25)',
-                                }
-                            }}
-                        >
-                            {copied ? <CheckIcon /> : <ContentCopyIcon />}
-                        </IconButton>
-                    </Tooltip>
-                </div>
+                <TextField
+                    value={window.location.href}
+                    InputProps={{
+                        readOnly: true,
+                        sx: {
+                            borderRadius: '20px',
+                            background: 'rgba(255,255,255,0.05)',
+                            color: 'white',
+                            height: '40px',
+                            '& fieldset': { border: 'none' }
+                        }
+                    }}
+                    size="small"
+                    sx={{ flex: 1, maxWidth: '600px' }}
+                />
+                <IconButton
+                    onClick={handleCopyLink}
+                    sx={{
+                        ml: 1,
+                        background: copied ? 'rgba(76,175,80,0.2)' : 'rgba(255,255,255,0.15)',
+                        color: copied ? '#4CAF50' : 'white',
+                        width: 40,
+                        height: 40,
+                    }}
+                >
+                    {copied ? <CheckIcon /> : <ContentCopyIcon />}
+                </IconButton>
             </div>
 
-            {/* Connection error */}
+            {/* Error */}
             {connectionError && (
                 <div style={{
                     position: 'absolute',
@@ -673,17 +578,16 @@ export default function VideoMeetComponent() {
                     left: '50%',
                     transform: 'translateX(-50%)',
                     zIndex: 300,
-                    background: 'rgba(220, 38, 38, 0.9)',
+                    background: 'rgba(220,38,38,0.9)',
                     color: 'white',
                     padding: '12px 24px',
                     borderRadius: '8px',
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
                 }}>
                     ⚠️ {connectionError}
                 </div>
             )}
 
-            {/* Video grid */}
+            {/* Video Grid */}
             <div style={{
                 position: 'absolute',
                 top: 70,
@@ -692,12 +596,14 @@ export default function VideoMeetComponent() {
                 bottom: 100,
                 display: 'grid',
                 gridTemplateColumns: `repeat(${getGridColumns(videoStreams.length)}, 1fr)`,
+                gridAutoRows: 'minmax(250px, 1fr)',
                 padding: '20px',
                 gap: '20px',
                 overflow: 'auto'
             }}>
                 {videoStreams.length === 0 ? (
                     <div style={{
+                        gridColumn: '1 / -1',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -718,261 +624,174 @@ export default function VideoMeetComponent() {
                         </div>
                     </div>
                 ) : (
-                    videoStreams.map((videoData, index) => (
+                    videoStreams.map((videoData) => (
                         <VideoTile
                             key={`${videoData.socketId}-${videoData.type}-${videoData.timestamp}`}
                             videoData={videoData}
-                            index={index}
                         />
                     ))
                 )}
             </div>
 
-            {/* Chat modal */}
+            {/* Chat */}
             {showModal && (
                 <div style={{
                     position: 'absolute',
                     height: 'calc(100vh - 170px)',
                     right: '20px',
                     top: '90px',
-                    background: 'rgba(0, 0, 0, 0.95)',
-                    backdropFilter: 'blur(20px)',
+                    background: 'rgba(0,0,0,0.95)',
                     borderRadius: '16px',
                     width: '380px',
-                    border: '1px solid rgba(139, 0, 0, 0.3)',
-                    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+                    border: '1px solid rgba(139,0,0,0.3)',
+                    padding: '20px',
                     display: 'flex',
                     flexDirection: 'column',
-                    overflow: 'hidden',
                     zIndex: 1000
                 }}>
                     <div style={{
                         display: 'flex',
-                        flexDirection: 'column',
-                        height: '100%',
-                        padding: '20px'
+                        justifyContent: 'space-between',
+                        marginBottom: '20px',
+                        paddingBottom: '15px',
+                        borderBottom: '2px solid rgba(139,0,0,0.3)'
                     }}>
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            marginBottom: '20px',
-                            paddingBottom: '15px',
-                            borderBottom: '2px solid rgba(139, 0, 0, 0.3)'
-                        }}>
-                            <h1 style={{
-                                fontSize: '1.5rem',
-                                fontWeight: 700,
-                                color: 'white',
-                                margin: 0
-                            }}>Chat</h1>
-                            <IconButton
-                                onClick={() => setModal(false)}
-                                sx={{ color: '#9ca3af', '&:hover': { color: '#DC143C' } }}
-                            >
-                                <CloseIcon />
-                            </IconButton>
-                        </div>
+                        <h1 style={{ color: 'white', fontSize: '1.5rem', margin: 0 }}>Chat</h1>
+                        <IconButton onClick={() => setModal(false)} sx={{ color: '#9ca3af' }}>
+                            <CloseIcon />
+                        </IconButton>
+                    </div>
 
-                        <div style={{
-                            flex: 1,
-                            overflowY: 'auto',
-                            marginBottom: '20px',
-                            paddingRight: '10px'
-                        }}>
-                            {messages.length > 0 ? messages.map((item, idx) => (
-                                <div key={idx} style={{
-                                    background: 'rgba(139, 0, 0, 0.1)',
-                                    padding: '12px 16px',
+                    <div style={{ flex: 1, overflowY: 'auto', marginBottom: '20px' }}>
+                        {messages.map((item, idx) => (
+                            <div key={idx} style={{
+                                background: 'rgba(139,0,0,0.1)',
+                                padding: '12px 16px',
+                                borderRadius: '12px',
+                                marginBottom: '12px',
+                                border: '1px solid rgba(139,0,0,0.2)'
+                            }}>
+                                <p style={{ color: '#DC143C', fontWeight: 600, margin: '0 0 4px 0' }}>
+                                    {item.sender}
+                                </p>
+                                <p style={{ color: '#e5e7eb', margin: 0 }}>{item.data}</p>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <TextField
+                            value={message}
+                            onChange={(e) => setMessage(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                            placeholder="Type message..."
+                            size="small"
+                            fullWidth
+                            sx={{
+                                '& .MuiOutlinedInput-root': {
                                     borderRadius: '12px',
-                                    marginBottom: '12px',
-                                    border: '1px solid rgba(139, 0, 0, 0.2)'
-                                }}>
-                                    <p style={{
-                                        fontWeight: 600,
-                                        color: '#DC143C',
-                                        marginBottom: '4px',
-                                        fontSize: '0.9rem',
-                                        margin: '0 0 4px 0'
-                                    }}>{item.sender}</p>
-                                    <p style={{
-                                        color: '#e5e7eb',
-                                        margin: 0,
-                                        wordWrap: 'break-word'
-                                    }}>{item.data}</p>
-                                </div>
-                            )) : (
-                                <p style={{
-                                    textAlign: 'center',
-                                    color: '#6b7280',
-                                    marginTop: '2rem'
-                                }}>No messages yet</p>
-                            )}
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
-                            <TextField
-                                value={message}
-                                onChange={(e) => setMessage(e.target.value)}
-                                onKeyPress={handleKeyPress}
-                                placeholder="Type a message..."
-                                variant="outlined"
-                                size="small"
-                                fullWidth
-                                sx={{
-                                    '& .MuiOutlinedInput-root': {
-                                        borderRadius: '12px',
-                                        background: 'rgba(255, 255, 255, 0.1)',
-                                        color: 'white',
-                                        '& fieldset': { borderColor: 'rgba(139, 0, 0, 0.3)' },
-                                        '&:hover fieldset': { borderColor: 'rgba(139, 0, 0, 0.5)' },
-                                        '&.Mui-focused fieldset': { borderColor: '#DC143C' }
-                                    },
-                                    '& input': { color: 'white' },
-                                    '& input::placeholder': { color: '#9ca3af', opacity: 1 }
-                                }}
-                            />
-                            <IconButton
-                                onClick={sendMessage}
-                                disabled={!message.trim()}
-                                sx={{
-                                    background: 'linear-gradient(135deg, #8B0000 0%, #DC143C 100%)',
+                                    background: 'rgba(255,255,255,0.1)',
                                     color: 'white',
-                                    width: '44px',
-                                    height: '44px',
-                                    borderRadius: '12px',
-                                    '&:hover': {
-                                        background: 'linear-gradient(135deg, #DC143C 0%, #8B0000 100%)',
-                                    },
-                                    '&:disabled': {
-                                        background: 'rgba(139, 0, 0, 0.3)',
-                                        color: 'rgba(255, 255, 255, 0.3)'
-                                    }
-                                }}
-                            >
-                                <SendIcon />
-                            </IconButton>
-                        </div>
+                                    '& fieldset': { borderColor: 'rgba(139,0,0,0.3)' },
+                                    '&.Mui-focused fieldset': { borderColor: '#DC143C' }
+                                }
+                            }}
+                        />
+                        <IconButton
+                            onClick={sendMessage}
+                            disabled={!message.trim()}
+                            sx={{
+                                background: 'linear-gradient(135deg, #8B0000, #DC143C)',
+                                color: 'white',
+                                width: 44,
+                                height: 44,
+                                borderRadius: '12px',
+                                '&:disabled': { background: 'rgba(139,0,0,0.3)' }
+                            }}
+                        >
+                            <SendIcon />
+                        </IconButton>
                     </div>
                 </div>
             )}
 
-            {/* Control buttons */}
+            {/* Controls */}
             <div style={{
                 position: 'absolute',
                 width: '100%',
                 bottom: '30px',
                 display: 'flex',
                 justifyContent: 'center',
-                alignItems: 'center',
                 gap: '15px',
                 zIndex: 100
             }}>
-                <Tooltip title={video ? "Turn off camera" : "Turn on camera"} arrow>
-                    <IconButton
-                        onClick={() => setVideo(!video)}
-                        sx={{
-                            background: video ? 'rgba(255, 255, 255, 0.15)' : 'rgba(139, 0, 0, 0.8)',
-                            width: '60px',
-                            height: '60px',
-                            color: 'white',
-                            '&:hover': {
-                                background: video ? 'rgba(255, 255, 255, 0.25)' : 'rgba(139, 0, 0, 1)',
-                            }
-                        }}
-                    >
-                        {video ? <VideocamIcon sx={{ fontSize: '2rem' }} /> : <VideocamOffIcon sx={{ fontSize: '2rem' }} />}
-                    </IconButton>
-                </Tooltip>
+                <IconButton
+                    onClick={() => setVideo(!video)}
+                    sx={{
+                        background: video ? 'rgba(255,255,255,0.15)' : 'rgba(139,0,0,0.8)',
+                        width: 60,
+                        height: 60,
+                        color: 'white',
+                    }}
+                >
+                    {video ? <VideocamIcon sx={{ fontSize: '2rem' }} /> : <VideocamOffIcon sx={{ fontSize: '2rem' }} />}
+                </IconButton>
 
-                <Tooltip title="End call" arrow>
-                    <IconButton
-                        onClick={handleEndCall}
-                        sx={{
-                            background: 'linear-gradient(135deg, #8B0000 0%, #DC143C 100%)',
-                            width: '70px',
-                            height: '70px',
-                            color: 'white',
-                            '&:hover': {
-                                background: 'linear-gradient(135deg, #DC143C 0%, #8B0000 100%)',
-                            }
-                        }}
-                    >
-                        <CallEndIcon sx={{ fontSize: '2.2rem' }} />
-                    </IconButton>
-                </Tooltip>
+                <IconButton
+                    onClick={handleEndCall}
+                    sx={{
+                        background: 'linear-gradient(135deg, #8B0000, #DC143C)',
+                        width: 70,
+                        height: 70,
+                        color: 'white',
+                    }}
+                >
+                    <CallEndIcon sx={{ fontSize: '2.2rem' }} />
+                </IconButton>
 
-                <Tooltip title={audio ? "Mute" : "Unmute"} arrow>
-                    <IconButton
-                        onClick={() => setAudio(!audio)}
-                        sx={{
-                            background: audio ? 'rgba(255, 255, 255, 0.15)' : 'rgba(139, 0, 0, 0.8)',
-                            width: '60px',
-                            height: '60px',
-                            color: 'white',
-                            '&:hover': {
-                                background: audio ? 'rgba(255, 255, 255, 0.25)' : 'rgba(139, 0, 0, 1)',
-                            }
-                        }}
-                    >
-                        {audio ? <MicIcon sx={{ fontSize: '2rem' }} /> : <MicOffIcon sx={{ fontSize: '2rem' }} />}
-                    </IconButton>
-                </Tooltip>
+                <IconButton
+                    onClick={() => setAudio(!audio)}
+                    sx={{
+                        background: audio ? 'rgba(255,255,255,0.15)' : 'rgba(139,0,0,0.8)',
+                        width: 60,
+                        height: 60,
+                        color: 'white',
+                    }}
+                >
+                    {audio ? <MicIcon sx={{ fontSize: '2rem' }} /> : <MicOffIcon sx={{ fontSize: '2rem' }} />}
+                </IconButton>
 
-                <Tooltip title={isScreenSharing ? "Stop sharing" : "Share screen"} arrow>
-                    <IconButton
-                        onClick={isScreenSharing ? stopScreenShare : startScreenShare}
-                        sx={{
-                            background: isScreenSharing ? 'rgba(139, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.15)',
-                            width: '60px',
-                            height: '60px',
-                            color: 'white',
-                            '&:hover': {
-                                background: isScreenSharing ? 'rgba(139, 0, 0, 1)' : 'rgba(255, 255, 255, 0.25)',
-                            }
-                        }}
-                    >
-                        {isScreenSharing ? <StopScreenShareIcon sx={{ fontSize: '2rem' }} /> : <ScreenShareIcon sx={{ fontSize: '2rem' }} />}
-                    </IconButton>
-                </Tooltip>
+                <IconButton
+                    onClick={isScreenSharing ? stopScreenShare : startScreenShare}
+                    sx={{
+                        background: isScreenSharing ? 'rgba(139,0,0,0.8)' : 'rgba(255,255,255,0.15)',
+                        width: 60,
+                        height: 60,
+                        color: 'white',
+                    }}
+                >
+                    {isScreenSharing ? <StopScreenShareIcon sx={{ fontSize: '2rem' }} /> : <ScreenShareIcon sx={{ fontSize: '2rem' }} />}
+                </IconButton>
 
-                <Tooltip title="Chat" arrow>
-                    <IconButton
-                        onClick={() => {
-                            setModal(true);
-                            setNewMessages(0);
-                        }}
-                        sx={{
-                            background: 'rgba(255, 255, 255, 0.15)',
-                            width: '60px',
-                            height: '60px',
-                            color: 'white',
-                            '&:hover': {
-                                background: 'rgba(255, 255, 255, 0.25)',
-                            }
-                        }}
-                    >
-                        <Badge badgeContent={newMessages} color="error">
-                            <ChatIcon sx={{ fontSize: '2rem' }} />
-                        </Badge>
-                    </IconButton>
-                </Tooltip>
+                <IconButton
+                    onClick={() => { setModal(true); setNewMessages(0); }}
+                    sx={{
+                        background: 'rgba(255,255,255,0.15)',
+                        width: 60,
+                        height: 60,
+                        color: 'white',
+                    }}
+                >
+                    <Badge badgeContent={newMessages} color="error">
+                        <ChatIcon sx={{ fontSize: '2rem' }} />
+                    </Badge>
+                </IconButton>
             </div>
 
-            {/* CSS Animations */}
+            {/* Animations */}
             <style>{`
                 @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-                
-                @keyframes pulse {
-                    0%, 100% {
-                        opacity: 1;
-                    }
-                    50% {
-                        opacity: 0.7;
-                    }
+                    to { transform: rotate(360deg); }
                 }
             `}</style>
         </div>
