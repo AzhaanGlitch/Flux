@@ -16,16 +16,29 @@ export const usePeerConnections = (roomCode, username, localStream) => {
     const [connectionError, setConnectionError] = useState(null);
     const [participantNames, setParticipantNames] = useState({});
     
+    // REFS
     const socketRef = useRef(null);
     const peerConnectionsRef = useRef({});
     const pendingCandidatesRef = useRef({});
     const localStreamRef = useRef(localStream);
     const remoteStreamsRef = useRef({});
+    
+    // CRITICAL FIX: Use ref for names to avoid dependency cycles in callbacks
+    const participantNamesRef = useRef({});
 
+    // Update local stream ref when it changes
     useEffect(() => {
         localStreamRef.current = localStream;
+        
+        // Update local stream in existing list if it exists
+        if (socketRef.current && localStream) {
+            setVideoStreams(prev => prev.map(v => 
+                v.isLocal ? { ...v, stream: localStream } : v
+            ));
+        }
     }, [localStream]);
 
+    // Helper to determine if a track is screen share
     const isScreenShareTrack = (track) => {
         const label = track.label.toLowerCase();
         return (
@@ -38,6 +51,14 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         );
     };
 
+    // Helper to safely update names in both Ref (for logic) and State (for UI)
+    const updateParticipantName = useCallback((id, name) => {
+        participantNamesRef.current[id] = name;
+        setParticipantNames(prev => ({ ...prev, [id]: name }));
+    }, []);
+
+    // 1. Create Peer Connection
+    // Removed 'participantNames' from dependency array to prevent infinite loop
     const createPeerConnection = useCallback((socketId) => {
         console.log(`🔗 Creating peer connection for: ${socketId}`);
         
@@ -81,10 +102,11 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                     v => v.socketId === socketId && v.type === streamType
                 );
 
-                const participantName = participantNames[socketId] || socketId;
+                // FIX: Use Ref for name lookup to avoid stale closures or dependency cycles
+                const currentName = participantNamesRef.current[socketId] || socketId;
                 const displayName = isScreen 
-                    ? `${participantName}'s Screen` 
-                    : participantName;
+                    ? `${currentName}'s Screen` 
+                    : currentName;
 
                 const newStreamData = {
                     socketId,
@@ -98,21 +120,17 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 if (existingIndex !== -1) {
                     const updated = [...prev];
                     updated[existingIndex] = newStreamData;
-                    console.log(`🔄 Updated ${streamType} stream for ${socketId}`);
                     return updated;
                 } else {
-                    console.log(`✅ Added new ${streamType} stream for ${socketId}`);
                     return [...prev, newStreamData];
                 }
             });
 
             track.onended = () => {
-                console.log(`🛑 Track ended from ${socketId}, type: ${isScreen ? 'screen' : 'camera'}`);
-                
+                console.log(`🛑 Track ended from ${socketId}`);
                 if (isScreen) {
                     remoteStreamsRef.current[socketId].screen = null;
                 }
-
                 setVideoStreams(prev => 
                     prev.filter(v => !(v.socketId === socketId && v.type === (isScreen ? 'screen' : 'camera')))
                 );
@@ -121,7 +139,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
 
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
-                console.log(`🧊 Sending ICE candidate to ${socketId}`);
                 socketRef.current?.emit('signal', socketId, JSON.stringify({
                     ice: event.candidate
                 }));
@@ -132,51 +149,35 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             const state = peerConnection.connectionState;
             console.log(`Connection state with ${socketId}: ${state}`);
             
-            if (state === 'connected') {
-                setConnectionError(null);
-            } else if (state === 'failed' || state === 'disconnected') {
-                console.warn(`⚠️ Connection issue with ${socketId}`);
-                setConnectionError(`Connection lost with participant`);
-                
-                setTimeout(() => {
-                    if (peerConnection.connectionState === 'failed') {
-                        console.log(`🔄 Attempting to restart ICE for ${socketId}`);
-                        peerConnection.restartIce();
-                    }
-                }, 2000);
+            if (state === 'failed') {
+                console.warn(`⚠️ Connection failed with ${socketId}, restarting ICE`);
+                peerConnection.restartIce();
             }
         };
 
-        peerConnection.oniceconnectionstatechange = () => {
-            console.log(`ICE state with ${socketId}: ${peerConnection.iceConnectionState}`);
-        };
-
+        // Add local tracks
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => {
-                console.log(`➕ Adding local ${track.kind} track to ${socketId}`);
                 peerConnection.addTrack(track, localStreamRef.current);
             });
         }
 
         return peerConnection;
-    }, [participantNames]);
+    }, []); // Empty dependency array is safe now because we use refs
 
+    // 2. Handle Signaling
     const handleSignal = useCallback(async (fromSocketId, message) => {
         const signal = JSON.parse(message);
-        console.log(`📨 Signal from ${fromSocketId}:`, signal.sdp?.type || 'ice-candidate');
-
+        
         let peerConnection = peerConnectionsRef.current[fromSocketId];
 
         if (!peerConnection) {
-            console.log(`⚠️ Creating late peer connection for ${fromSocketId}`);
             peerConnection = createPeerConnection(fromSocketId);
         }
 
         try {
             if (signal.sdp) {
-                await peerConnection.setRemoteDescription(
-                    new RTCSessionDescription(signal.sdp)
-                );
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
 
                 if (signal.sdp.type === 'offer') {
                     const answer = await peerConnection.createAnswer();
@@ -187,45 +188,41 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                     }));
                 }
 
+                // Process pending candidates
                 if (pendingCandidatesRef.current[fromSocketId]) {
-                    console.log(`Adding ${pendingCandidatesRef.current[fromSocketId].length} pending candidates`);
-                    
                     for (const candidate of pendingCandidatesRef.current[fromSocketId]) {
                         await peerConnection.addIceCandidate(candidate);
                     }
-                    
                     delete pendingCandidatesRef.current[fromSocketId];
                 }
             }
 
             if (signal.ice) {
+                const candidate = new RTCIceCandidate(signal.ice);
                 if (peerConnection.remoteDescription) {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(signal.ice));
+                    await peerConnection.addIceCandidate(candidate);
                 } else {
                     if (!pendingCandidatesRef.current[fromSocketId]) {
                         pendingCandidatesRef.current[fromSocketId] = [];
                     }
-                    pendingCandidatesRef.current[fromSocketId].push(new RTCIceCandidate(signal.ice));
+                    pendingCandidatesRef.current[fromSocketId].push(candidate);
                 }
             }
         } catch (error) {
-            console.error(`❌ Error handling signal from ${fromSocketId}:`, error);
-            setConnectionError(`Failed to establish connection`);
+            console.error(`❌ Signal Error from ${fromSocketId}:`, error);
         }
     }, [createPeerConnection]);
 
+    // 3. Main Socket Connection Logic
     useEffect(() => {
-        if (!roomCode || !username) {
-            console.log('⏸️ Waiting for roomCode and username...');
-            return;
-        }
+        if (!roomCode || !username) return;
 
         console.log('🚀 Initializing socket connection...');
         
+        // Initialize Socket
         socketRef.current = io(server, {
             secure: true,
             reconnection: true,
-            reconnectionDelay: 1000,
             reconnectionAttempts: 5,
             transports: ['websocket', 'polling'],
         });
@@ -235,18 +232,20 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         socket.on('connect', () => {
             console.log('✅ Socket connected:', socket.id);
             
+            // Add self to video streams immediately
             if (localStreamRef.current) {
                 setVideoStreams([{
                     socketId: socket.id,
                     stream: localStreamRef.current,
                     type: 'camera',
-                    name: username,
+                    name: username, // Use prop directly
                     isLocal: true,
                     timestamp: Date.now(),
                 }]);
             }
 
-            setParticipantNames(prev => ({ ...prev, [socket.id]: username }));
+            // Update self name in ref
+            updateParticipantName(socket.id, username);
 
             socket.emit('join-call', roomCode);
             socket.emit('username', username);
@@ -256,8 +255,9 @@ export const usePeerConnections = (roomCode, username, localStream) => {
 
         socket.on('username', (socketId, name) => {
             console.log(`📝 Received username: ${name} for ${socketId}`);
-            setParticipantNames(prev => ({ ...prev, [socketId]: name }));
+            updateParticipantName(socketId, name);
             
+            // Update display names in existing video streams
             setVideoStreams(prev => prev.map(v => 
                 v.socketId === socketId 
                     ? { ...v, name: v.type === 'screen' ? `${name}'s Screen` : name }
@@ -265,9 +265,10 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             ));
         });
 
-        socket.on('user-joined', async (joinedSocketId, allParticipants) => {
-            console.log(`👤 User joined: ${joinedSocketId}. Total:`, allParticipants);
-
+        socket.on('user-joined', (joinedSocketId, allParticipants) => {
+            console.log(`👤 User joined: ${joinedSocketId}`);
+            
+            // Initiate connection to all other participants
             allParticipants.forEach(async (participantId) => {
                 if (participantId === socket.id) return;
                 if (peerConnectionsRef.current[participantId]) return;
@@ -280,69 +281,44 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                         offerToReceiveAudio: true,
                         offerToReceiveVideo: true,
                     });
-
                     await peerConnection.setLocalDescription(offer);
-
                     socket.emit('signal', participantId, JSON.stringify({
                         sdp: peerConnection.localDescription
                     }));
-                } catch (error) {
-                    console.error(`❌ Error creating offer for ${participantId}:`, error);
+                } catch (e) {
+                    console.error('Error creating offer:', e);
                 }
             });
         });
 
         socket.on('user-left', (leftSocketId) => {
             console.log(`👋 User left: ${leftSocketId}`);
-
             if (peerConnectionsRef.current[leftSocketId]) {
                 peerConnectionsRef.current[leftSocketId].close();
                 delete peerConnectionsRef.current[leftSocketId];
             }
-
             delete remoteStreamsRef.current[leftSocketId];
-            delete participantNames[leftSocketId];
-
+            // Don't delete from participantNamesRef immediately to avoid UI flicker if they rejoin fast
+            
             setVideoStreams(prev => prev.filter(v => v.socketId !== leftSocketId));
         });
 
-        socket.on('screen-share-started', (sharerSocketId) => {
-            console.log(`🖥️ ${sharerSocketId} started screen sharing`);
-        });
-
         socket.on('screen-share-stopped', (sharerSocketId) => {
-            console.log(`🛑 ${sharerSocketId} stopped screen sharing`);
-            
             setVideoStreams(prev => 
                 prev.filter(v => !(v.socketId === sharerSocketId && v.type === 'screen'))
             );
-            
             if (remoteStreamsRef.current[sharerSocketId]) {
                 remoteStreamsRef.current[sharerSocketId].screen = null;
             }
         });
 
-        socket.on('connect_error', (error) => {
-            console.error('❌ Socket connection error:', error);
-            setConnectionError('Failed to connect to server');
-        });
-
         return () => {
             console.log('🧹 Cleaning up connections...');
-            
-            Object.values(peerConnectionsRef.current).forEach(pc => {
-                if (pc.connectionState !== 'closed') {
-                    pc.close();
-                }
-            });
-            
+            Object.values(peerConnectionsRef.current).forEach(pc => pc.close());
+            peerConnectionsRef.current = {};
             socket.disconnect();
-            
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach(track => track.stop());
-            }
         };
-    }, [roomCode, username, createPeerConnection, handleSignal]);
+    }, [roomCode, username, createPeerConnection, handleSignal, updateParticipantName]); 
 
     return {
         videoStreams,
