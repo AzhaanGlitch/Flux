@@ -1,4 +1,4 @@
-// frontend/src/pages/VideoMeet.jsx 
+// frontend/src/pages/VideoMeet.jsx - COMPLETE FIXED VERSION
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Badge, IconButton, TextField, Button, Tooltip } from '@mui/material';
@@ -18,6 +18,219 @@ import CheckIcon from '@mui/icons-material/Check';
 import { usePeerConnections } from '../hooks/usePeerConnections';
 import { useScreenShare } from '../hooks/useScreenShare';
 
+// ============================================================================
+// VIDEO TILE COMPONENT - PROPERLY DEFINED
+// ============================================================================
+const VideoTile = React.memo(({ videoData, index }) => {
+    const videoRef = useRef();
+    const [isLoaded, setIsLoaded] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+
+    // Attach stream to video element
+    useEffect(() => {
+        if (videoRef.current && videoData.stream) {
+            console.log(`🎬 Attaching stream to video element for ${videoData.socketId}`);
+            videoRef.current.srcObject = videoData.stream;
+
+            const handleLoadedMetadata = () => {
+                console.log('✅ Video metadata loaded for:', videoData.socketId);
+                setIsLoaded(true);
+                
+                // Force play
+                videoRef.current.play().catch(err => {
+                    console.error('Play error:', err);
+                });
+            };
+
+            const handleCanPlay = () => {
+                console.log('✅ Video can play:', videoData.socketId);
+                videoRef.current.play().catch(err => {
+                    console.error('Play error:', err);
+                });
+            };
+
+            videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata);
+            videoRef.current.addEventListener('canplay', handleCanPlay);
+
+            // Immediate play attempt
+            videoRef.current.play().catch(err => {
+                console.log('Initial play prevented (expected):', err.message);
+            });
+
+            return () => {
+                if (videoRef.current) {
+                    videoRef.current.removeEventListener('loadedmetadata', handleLoadedMetadata);
+                    videoRef.current.removeEventListener('canplay', handleCanPlay);
+                }
+            };
+        }
+    }, [videoData.stream, videoData.socketId]);
+
+    // Audio level detection for speaking indicator
+    useEffect(() => {
+        if (!videoData.stream || videoData.type === 'screen' || videoData.isLocal) return;
+
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            const microphone = audioContext.createMediaStreamSource(videoData.stream);
+            
+            analyser.fftSize = 512;
+            analyser.smoothingTimeConstant = 0.8;
+            microphone.connect(analyser);
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            let animationId;
+
+            const detectSpeaking = () => {
+                analyser.getByteFrequencyData(dataArray);
+                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                
+                setIsSpeaking(average > 20);
+                
+                animationId = requestAnimationFrame(detectSpeaking);
+            };
+
+            detectSpeaking();
+
+            return () => {
+                cancelAnimationFrame(animationId);
+                audioContext.close();
+            };
+        } catch (error) {
+            console.error('Audio analysis error:', error);
+        }
+    }, [videoData.stream, videoData.type, videoData.isLocal]);
+
+    const isScreenShare = videoData.type === 'screen';
+    const transform = videoData.isLocal && !isScreenShare ? 'scaleX(-1)' : 'none';
+
+    return (
+        <div
+            style={{
+                position: 'relative',
+                borderRadius: '16px',
+                overflow: 'hidden',
+                boxShadow: isScreenShare
+                    ? '0 0 30px rgba(220, 38, 38, 0.5), 0 10px 40px rgba(0, 0, 0, 0.4)'
+                    : '0 10px 30px rgba(0, 0, 0, 0.3)',
+                border: isScreenShare
+                    ? '3px solid #DC143C'
+                    : isSpeaking 
+                        ? '3px solid #10b981'
+                        : '2px solid rgba(255, 255, 255, 0.1)',
+                background: 'rgba(0, 0, 0, 0.5)',
+                gridColumn: isScreenShare ? 'span 2' : 'span 1',
+                gridRow: isScreenShare ? 'span 2' : 'span 1',
+                minHeight: '200px',
+                transition: 'all 0.3s ease',
+            }}
+        >
+            {/* Loading indicator */}
+            {!isLoaded && (
+                <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(0, 0, 0, 0.8)',
+                    color: 'white',
+                    zIndex: 1
+                }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{
+                            width: '40px',
+                            height: '40px',
+                            border: '4px solid rgba(255,255,255,0.3)',
+                            borderTop: '4px solid white',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite',
+                            margin: '0 auto 10px'
+                        }} />
+                        <p style={{ margin: 0 }}>Loading video...</p>
+                    </div>
+                </div>
+            )}
+
+            {/* Video element */}
+            <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted={videoData.isLocal}
+                style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    transform,
+                    opacity: isLoaded ? 1 : 0,
+                    transition: 'opacity 0.3s ease',
+                    display: 'block',
+                }}
+            />
+
+            {/* Speaking indicator ring */}
+            {isSpeaking && !videoData.isLocal && (
+                <div style={{
+                    position: 'absolute',
+                    inset: '5px',
+                    border: '3px solid #10b981',
+                    borderRadius: '16px',
+                    pointerEvents: 'none',
+                    animation: 'pulse 1.5s ease-in-out infinite',
+                }} />
+            )}
+
+            {/* Participant label */}
+            <div style={{
+                position: 'absolute',
+                bottom: 10,
+                left: 10,
+                background: 'rgba(0, 0, 0, 0.7)',
+                color: 'white',
+                padding: '5px 10px',
+                borderRadius: '20px',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                backdropFilter: 'blur(10px)',
+            }}>
+                {isScreenShare && '🖥️ '}
+                {videoData.name || 'Unknown'}
+                {videoData.isLocal && ' (You)'}
+            </div>
+
+            {/* Screen share badge */}
+            {isScreenShare && (
+                <div style={{
+                    position: 'absolute',
+                    top: 10,
+                    left: 10,
+                    background: 'linear-gradient(135deg, #DC143C, #8B0000)',
+                    color: 'white',
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    boxShadow: '0 4px 15px rgba(220, 38, 38, 0.5)',
+                }}>
+                    Screen Share
+                </div>
+            )}
+        </div>
+    );
+});
+
+VideoTile.displayName = 'VideoTile';
+
+// ============================================================================
+// MAIN VIDEO MEET COMPONENT
+// ============================================================================
 export default function VideoMeetComponent() {
     // State management
     const [username, setUsername] = useState('');
@@ -37,7 +250,7 @@ export default function VideoMeetComponent() {
     const streamInitializedRef = useRef(false);
     const roomCode = window.location.pathname.substring(1);
 
-    // Hooks - ONLY initialize when username is set
+    // Hooks - Initialize after username is set
     const {
         videoStreams,
         connectionError,
@@ -74,13 +287,16 @@ export default function VideoMeetComponent() {
                     },
                 });
 
-                console.log('✅ Media access granted');
+                console.log('✅ Media access granted:', stream.getTracks());
                 streamInitializedRef.current = true;
                 setLocalStream(stream);
                 setMediaReady(true);
 
                 if (localVideoRef.current) {
                     localVideoRef.current.srcObject = stream;
+                    localVideoRef.current.play().catch(err => {
+                        console.log('Autoplay prevented (expected):', err);
+                    });
                 }
             } catch (error) {
                 console.error('❌ Failed to get media:', error);
@@ -90,33 +306,43 @@ export default function VideoMeetComponent() {
 
         initializeMedia();
 
-        // Cleanup ONLY on unmount
         return () => {
             console.log('🧹 Component unmounting - cleaning up media');
             if (localStream && streamInitializedRef.current) {
-                localStream.getTracks().forEach(track => track.stop());
+                localStream.getTracks().forEach(track => {
+                    track.stop();
+                    console.log('Stopped track:', track.kind);
+                });
                 streamInitializedRef.current = false;
             }
         };
-    }, []); // Empty deps - only run once
+    }, []);
 
-    // Re-attach video element when switching screens (lobby -> meeting)
+    // Re-attach video element when switching screens
     useEffect(() => {
         if (localVideoRef.current && localStream) {
+            console.log('Re-attaching local stream to video element');
             localVideoRef.current.srcObject = localStream;
+            localVideoRef.current.play().catch(err => {
+                console.log('Play prevented:', err);
+            });
         }
     }, [localStream, askForUsername]);
 
-    // Update track enabled state when toggles change
+    // Update track enabled state
     useEffect(() => {
         if (!localStream) return;
 
+        console.log('Updating tracks - Video:', video, 'Audio:', audio);
+
         localStream.getVideoTracks().forEach(track => {
             track.enabled = video;
+            console.log('Video track enabled:', track.enabled);
         });
 
         localStream.getAudioTracks().forEach(track => {
             track.enabled = audio;
+            console.log('Audio track enabled:', track.enabled);
         });
     }, [video, audio, localStream]);
 
@@ -182,8 +408,7 @@ export default function VideoMeetComponent() {
         return 4;
     };
 
-
-    // LOBBY SCREEN - Shows before joining meeting
+    // LOBBY SCREEN
     if (askForUsername) {
         return (
             <div style={{
@@ -195,7 +420,6 @@ export default function VideoMeetComponent() {
                 justifyContent: 'center',
                 overflow: 'hidden'
             }}>
-                {/* Background gradient */}
                 <div style={{
                     position: 'absolute',
                     inset: 0,
@@ -203,7 +427,6 @@ export default function VideoMeetComponent() {
                     zIndex: 0
                 }} />
 
-                {/* Lobby card */}
                 <div style={{
                     position: 'relative',
                     zIndex: 10,
@@ -233,7 +456,6 @@ export default function VideoMeetComponent() {
                         Room: <span style={{ color: '#DC143C', fontWeight: 600 }}>{roomCode}</span>
                     </p>
 
-                    {/* Video preview container */}
                     <div style={{
                         position: 'relative',
                         marginBottom: '2rem',
@@ -277,7 +499,6 @@ export default function VideoMeetComponent() {
                             />
                         )}
 
-                        {/* Camera/Mic controls overlay */}
                         <div style={{
                             position: 'absolute',
                             bottom: '15px',
@@ -326,7 +547,6 @@ export default function VideoMeetComponent() {
                         </div>
                     </div>
 
-                    {/* Username input */}
                     <TextField
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
@@ -350,7 +570,6 @@ export default function VideoMeetComponent() {
                         }}
                     />
 
-                    {/* Join button */}
                     <Button
                         onClick={connect}
                         variant="contained"
@@ -379,7 +598,7 @@ export default function VideoMeetComponent() {
         );
     }
 
-    // MEETING ROOM - After joining
+    // MEETING ROOM
     return (
         <div style={{
             position: 'relative',
@@ -387,7 +606,7 @@ export default function VideoMeetComponent() {
             background: 'linear-gradient(135deg, #000000 0%, #0a0000 100%)',
             overflow: 'hidden'
         }}>
-            {/* Header with meeting link */}
+            {/* Header */}
             <div style={{
                 position: 'absolute',
                 top: 0,
@@ -446,7 +665,7 @@ export default function VideoMeetComponent() {
                 </div>
             </div>
 
-            {/* Connection error alert */}
+            {/* Connection error */}
             {connectionError && (
                 <div style={{
                     position: 'absolute',
@@ -477,13 +696,36 @@ export default function VideoMeetComponent() {
                 gap: '20px',
                 overflow: 'auto'
             }}>
-                {videoStreams.map((videoData, index) => (
-                    <VideoTile
-                        key={`${videoData.socketId}-${videoData.type}`}
-                        videoData={videoData}
-                        index={index}
-                    />
-                ))}
+                {videoStreams.length === 0 ? (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontSize: '1.2rem'
+                    }}>
+                        <div style={{ textAlign: 'center' }}>
+                            <div style={{
+                                width: '60px',
+                                height: '60px',
+                                border: '4px solid rgba(255,255,255,0.3)',
+                                borderTop: '4px solid white',
+                                borderRadius: '50%',
+                                animation: 'spin 1s linear infinite',
+                                margin: '0 auto 20px'
+                            }} />
+                            <p>Connecting to meeting...</p>
+                        </div>
+                    </div>
+                ) : (
+                    videoStreams.map((videoData, index) => (
+                        <VideoTile
+                            key={`${videoData.socketId}-${videoData.type}-${videoData.timestamp}`}
+                            videoData={videoData}
+                            index={index}
+                        />
+                    ))
+                )}
             </div>
 
             {/* Chat modal */}
@@ -510,7 +752,6 @@ export default function VideoMeetComponent() {
                         height: '100%',
                         padding: '20px'
                     }}>
-                        {/* Chat header */}
                         <div style={{
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -533,7 +774,6 @@ export default function VideoMeetComponent() {
                             </IconButton>
                         </div>
 
-                        {/* Messages area */}
                         <div style={{
                             flex: 1,
                             overflowY: 'auto',
@@ -570,7 +810,6 @@ export default function VideoMeetComponent() {
                             )}
                         </div>
 
-                        {/* Message input */}
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
                             <TextField
                                 value={message}
@@ -719,150 +958,23 @@ export default function VideoMeetComponent() {
                     </IconButton>
                 </Tooltip>
             </div>
-        </div>
-    );
-}
 
-// VideoTile Component - Memoized for performance
-const VideoTile = React.memo(({ videoData, index }) => {
-    const videoRef = useRef();
-    const [isLoaded, setIsLoaded] = useState(false);
-
-    useEffect(() => {
-        if (videoRef.current && videoData.stream) {
-            videoRef.current.srcObject = videoData.stream;
-
-            const handleLoadedMetadata = () => {
-                console.log('✅ Video loaded for:', videoData.socketId);
-                setIsLoaded(true);
-            };
-
-            videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata);
-
-            return () => {
-                if (videoRef.current) {
-                    videoRef.current.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            {/* CSS Animations */}
+            <style>{`
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
                 }
-            };
-        }
-    }, [videoData.stream, videoData.socketId]);
-
-    const isScreenShare = videoData.type === 'screen';
-    const transform = videoData.isLocal && !isScreenShare ? 'scaleX(-1)' : 'none';
-
-    return (
-        <div
-            style={{
-                position: 'relative',
-                borderRadius: '16px',
-                overflow: 'hidden',
-                boxShadow: isScreenShare
-                    ? '0 0 30px rgba(220, 38, 38, 0.5), 0 10px 40px rgba(0, 0, 0, 0.4)'
-                    : '0 10px 30px rgba(0, 0, 0, 0.3)',
-                border: isScreenShare
-                    ? '3px solid #DC143C'
-                    : '2px solid rgba(255, 255, 255, 0.1)',
-                background: 'rgba(0, 0, 0, 0.5)',
-                gridColumn: isScreenShare ? 'span 2' : 'span 1',
-                gridRow: isScreenShare ? 'span 2' : 'span 1',
-            }}
-        >
-            {/* Loading indicator */}
-            {!isLoaded && (
-                <div style={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'rgba(0, 0, 0, 0.7)',
-                    color: 'white',
-                    zIndex: 1
-                }}>
-                    <div style={{ textAlign: 'center' }}>
-                        <div style={{
-                            width: '40px',
-                            height: '40px',
-                            border: '4px solid rgba(255,255,255,0.3)',
-                            borderTop: '4px solid white',
-                            borderRadius: '50%',
-                            animation: 'spin 1s linear infinite',
-                            margin: '0 auto 10px'
-                        }} />
-                        <p>Loading video...</p>
-                    </div>
-                </div>
-            )}
-
-            {/* Video element */}
-            <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted={videoData.isLocal}
-                style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                    transform,
-                    opacity: isLoaded ? 1 : 0,
-                    transition: 'opacity 0.3s ease',
-                }}
-            />
-
-            {/* Participant label */}
-            <div style={{
-                position: 'absolute',
-                bottom: 10,
-                left: 10,
-                background: 'rgba(0, 0, 0, 0.7)',
-                color: 'white',
-                padding: '5px 10px',
-                borderRadius: '20px',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                backdropFilter: 'blur(10px)',
-            }}>
-                {isScreenShare && '🖥️ '}
-                {videoData.name || 'Unknown'}
-                {videoData.isLocal && ' (You)'}
-            </div>
-
-            {/* Screen share badge */}
-            {isScreenShare && (
-                <div style={{
-                    position: 'absolute',
-                    top: 10,
-                    left: 10,
-                    background: 'linear-gradient(135deg, #DC143C, #8B0000)',
-                    color: 'white',
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                    boxShadow: '0 4px 15px rgba(220, 38, 38, 0.5)',
-                }}>
-                    Screen Share
-                </div>
-            )}
+                
+                @keyframes pulse {
+                    0%, 100% {
+                        opacity: 1;
+                    }
+                    50% {
+                        opacity: 0.7;
+                    }
+                }
+            `}</style>
         </div>
     );
-});
-
-// Add CSS for spinner animation
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-`;
-if (!document.getElementById('video-meet-styles')) {
-    style.id = 'video-meet-styles';
-    document.head.appendChild(style);
 }
