@@ -14,17 +14,14 @@ const peerConfig = {
 export const usePeerConnections = (roomCode, username, localStream) => {
     const [videoStreams, setVideoStreams] = useState([]);
     const [connectionError, setConnectionError] = useState(null);
-    const [participantNames, setParticipantNames] = useState({});
     
-    // REFS
+    // REFS for logic that shouldn't trigger re-renders
     const socketRef = useRef(null);
     const peerConnectionsRef = useRef({});
     const pendingCandidatesRef = useRef({});
     const localStreamRef = useRef(localStream);
     const remoteStreamsRef = useRef({});
-    
-    // CRITICAL FIX: Use ref for names to avoid dependency cycles in callbacks
-    const participantNamesRef = useRef({});
+    const participantNamesRef = useRef({}); // Store names in ref to avoid dependency cycles
 
     // Update local stream ref when it changes
     useEffect(() => {
@@ -38,33 +35,28 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
     }, [localStream]);
 
-    // Helper to determine if a track is screen share
-    const isScreenShareTrack = (track) => {
-        const label = track.label.toLowerCase();
-        return (
-            label.includes('screen') ||
-            label.includes('monitor') ||
-            label.includes('window') ||
-            label.includes('display') ||
-            track.contentHint === 'detail' ||
-            track.contentHint === 'text'
-        );
-    };
-
     // Helper to safely update names in both Ref (for logic) and State (for UI)
     const updateParticipantName = useCallback((id, name) => {
         participantNamesRef.current[id] = name;
-        setParticipantNames(prev => ({ ...prev, [id]: name }));
+        // Also update the display name in the video streams
+        setVideoStreams(prev => prev.map(v => {
+            if (v.socketId === id) {
+                return { 
+                    ...v, 
+                    name: v.type === 'screen' ? `${name}'s Screen` : name 
+                };
+            }
+            return v;
+        }));
     }, []);
 
-    // 1. Create Peer Connection
-    // Removed 'participantNames' from dependency array to prevent infinite loop
     const createPeerConnection = useCallback((socketId) => {
         console.log(`🔗 Creating peer connection for: ${socketId}`);
         
         const peerConnection = new RTCPeerConnection(peerConfig);
         peerConnectionsRef.current[socketId] = peerConnection;
 
+        // Initialize remote streams tracker for this user
         if (!remoteStreamsRef.current[socketId]) {
             remoteStreamsRef.current[socketId] = {
                 camera: null,
@@ -73,67 +65,75 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
 
         peerConnection.ontrack = (event) => {
-            console.log(`📹 TRACK RECEIVED from ${socketId}:`, {
-                kind: event.track.kind,
-                label: event.track.label,
-                streams: event.streams.length,
-            });
-
             const remoteStream = event.streams[0];
-            if (!remoteStream) {
-                console.error('❌ No stream in track event');
-                return;
+            if (!remoteStream) return;
+
+            console.log(`📹 TRACK RECEIVED from ${socketId} | Stream ID: ${remoteStream.id} | Kind: ${event.track.kind}`);
+
+            // -----------------------------------------------------------
+            // FIXED LOGIC: Determine if this is Camera or Screen Share
+            // -----------------------------------------------------------
+            let streamType = 'camera';
+            const existingCamera = remoteStreamsRef.current[socketId].camera;
+
+            // If we already have a camera stream and this ID is DIFFERENT, it must be screen share
+            if (existingCamera && existingCamera.id !== remoteStream.id) {
+                streamType = 'screen';
             }
-
-            const track = event.track;
-            const isScreen = isScreenShareTrack(track);
-
-            console.log(`🔍 Track classified as: ${isScreen ? 'SCREEN SHARE' : 'CAMERA'}`);
-
-            if (isScreen) {
-                remoteStreamsRef.current[socketId].screen = remoteStream;
-            } else {
+            
+            // Assign to ref
+            if (streamType === 'camera') {
                 remoteStreamsRef.current[socketId].camera = remoteStream;
+            } else {
+                remoteStreamsRef.current[socketId].screen = remoteStream;
             }
 
             setVideoStreams(prev => {
-                const streamType = isScreen ? 'screen' : 'camera';
-                const existingIndex = prev.findIndex(
-                    v => v.socketId === socketId && v.type === streamType
-                );
-
-                // FIX: Use Ref for name lookup to avoid stale closures or dependency cycles
                 const currentName = participantNamesRef.current[socketId] || socketId;
-                const displayName = isScreen 
+                const displayName = streamType === 'screen' 
                     ? `${currentName}'s Screen` 
                     : currentName;
 
-                const newStreamData = {
-                    socketId,
-                    stream: remoteStream,
-                    type: streamType,
-                    name: displayName,
-                    isLocal: false,
-                    timestamp: Date.now(),
-                };
+                // Check if we already have this stream in state
+                const existingIdx = prev.findIndex(
+                    v => v.socketId === socketId && v.type === streamType
+                );
 
-                if (existingIndex !== -1) {
+                if (existingIdx !== -1) {
+                    // CRITICAL FIX: Update existing entry but KEEP THE TIMESTAMP.
+                    // Changing timestamp causes VideoTile to unmount/remount (flicker/loading loop).
                     const updated = [...prev];
-                    updated[existingIndex] = newStreamData;
+                    updated[existingIdx] = {
+                        ...updated[existingIdx],
+                        stream: remoteStream, // Update stream reference (essential for audio+video sync)
+                        name: displayName
+                    };
                     return updated;
                 } else {
-                    return [...prev, newStreamData];
+                    // New stream - add with new timestamp
+                    console.log(`✅ Adding NEW ${streamType} stream for ${socketId}`);
+                    return [...prev, {
+                        socketId,
+                        stream: remoteStream,
+                        type: streamType,
+                        name: displayName,
+                        isLocal: false,
+                        timestamp: Date.now(),
+                    }];
                 }
             });
 
-            track.onended = () => {
+            // Handle track removal
+            event.track.onended = () => {
                 console.log(`🛑 Track ended from ${socketId}`);
-                if (isScreen) {
-                    remoteStreamsRef.current[socketId].screen = null;
+                // Only remove if all tracks in the stream are gone
+                if (remoteStream.getTracks().every(t => t.readyState === 'ended')) {
+                     setVideoStreams(prev => 
+                        prev.filter(v => !(v.socketId === socketId && v.type === streamType))
+                    );
+                    if (streamType === 'camera') remoteStreamsRef.current[socketId].camera = null;
+                    else remoteStreamsRef.current[socketId].screen = null;
                 }
-                setVideoStreams(prev => 
-                    prev.filter(v => !(v.socketId === socketId && v.type === (isScreen ? 'screen' : 'camera')))
-                );
             };
         };
 
@@ -148,14 +148,12 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         peerConnection.onconnectionstatechange = () => {
             const state = peerConnection.connectionState;
             console.log(`Connection state with ${socketId}: ${state}`);
-            
             if (state === 'failed') {
-                console.warn(`⚠️ Connection failed with ${socketId}, restarting ICE`);
                 peerConnection.restartIce();
             }
         };
 
-        // Add local tracks
+        // Add local tracks to the connection
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => {
                 peerConnection.addTrack(track, localStreamRef.current);
@@ -163,12 +161,10 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
 
         return peerConnection;
-    }, []); // Empty dependency array is safe now because we use refs
+    }, []); 
 
-    // 2. Handle Signaling
     const handleSignal = useCallback(async (fromSocketId, message) => {
         const signal = JSON.parse(message);
-        
         let peerConnection = peerConnectionsRef.current[fromSocketId];
 
         if (!peerConnection) {
@@ -182,22 +178,18 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 if (signal.sdp.type === 'offer') {
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
-                    
                     socketRef.current?.emit('signal', fromSocketId, JSON.stringify({
                         sdp: peerConnection.localDescription
                     }));
                 }
 
-                // Process pending candidates
                 if (pendingCandidatesRef.current[fromSocketId]) {
                     for (const candidate of pendingCandidatesRef.current[fromSocketId]) {
                         await peerConnection.addIceCandidate(candidate);
                     }
                     delete pendingCandidatesRef.current[fromSocketId];
                 }
-            }
-
-            if (signal.ice) {
+            } else if (signal.ice) {
                 const candidate = new RTCIceCandidate(signal.ice);
                 if (peerConnection.remoteDescription) {
                     await peerConnection.addIceCandidate(candidate);
@@ -213,13 +205,11 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
     }, [createPeerConnection]);
 
-    // 3. Main Socket Connection Logic
     useEffect(() => {
         if (!roomCode || !username) return;
 
         console.log('🚀 Initializing socket connection...');
         
-        // Initialize Socket
         socketRef.current = io(server, {
             secure: true,
             reconnection: true,
@@ -231,22 +221,19 @@ export const usePeerConnections = (roomCode, username, localStream) => {
 
         socket.on('connect', () => {
             console.log('✅ Socket connected:', socket.id);
-            
-            // Add self to video streams immediately
             if (localStreamRef.current) {
                 setVideoStreams([{
                     socketId: socket.id,
                     stream: localStreamRef.current,
                     type: 'camera',
-                    name: username, // Use prop directly
+                    name: username,
                     isLocal: true,
                     timestamp: Date.now(),
                 }]);
             }
-
-            // Update self name in ref
+            // Store own name
             updateParticipantName(socket.id, username);
-
+            
             socket.emit('join-call', roomCode);
             socket.emit('username', username);
         });
@@ -254,21 +241,11 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         socket.on('signal', handleSignal);
 
         socket.on('username', (socketId, name) => {
-            console.log(`📝 Received username: ${name} for ${socketId}`);
             updateParticipantName(socketId, name);
-            
-            // Update display names in existing video streams
-            setVideoStreams(prev => prev.map(v => 
-                v.socketId === socketId 
-                    ? { ...v, name: v.type === 'screen' ? `${name}'s Screen` : name }
-                    : v
-            ));
         });
 
         socket.on('user-joined', (joinedSocketId, allParticipants) => {
             console.log(`👤 User joined: ${joinedSocketId}`);
-            
-            // Initiate connection to all other participants
             allParticipants.forEach(async (participantId) => {
                 if (participantId === socket.id) return;
                 if (peerConnectionsRef.current[participantId]) return;
@@ -298,12 +275,16 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 delete peerConnectionsRef.current[leftSocketId];
             }
             delete remoteStreamsRef.current[leftSocketId];
-            // Don't delete from participantNamesRef immediately to avoid UI flicker if they rejoin fast
-            
             setVideoStreams(prev => prev.filter(v => v.socketId !== leftSocketId));
         });
 
+        socket.on('screen-share-started', (sharerSocketId) => {
+            console.log(`🖥️ ${sharerSocketId} started screen sharing`);
+            // We rely on 'ontrack' to actually add the video, but we can log this event
+        });
+
         socket.on('screen-share-stopped', (sharerSocketId) => {
+            console.log(`🛑 ${sharerSocketId} stopped screen sharing`);
             setVideoStreams(prev => 
                 prev.filter(v => !(v.socketId === sharerSocketId && v.type === 'screen'))
             );
