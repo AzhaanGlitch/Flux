@@ -1,5 +1,6 @@
-// frontend/src/pages/VideoMeet.jsx - COMPLETE FIXED VERSION (Part 1/2)
-import React, { useEffect, useRef, useState } from 'react';
+// frontend/src/pages/VideoMeet.jsx 
+
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Badge, IconButton, TextField, Button, Tooltip } from '@mui/material';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import VideocamOffIcon from '@mui/icons-material/VideocamOff';
@@ -18,6 +19,7 @@ import { usePeerConnections } from '../hooks/usePeerConnections';
 import { useScreenShare } from '../hooks/useScreenShare';
 
 export default function VideoMeetComponent() {
+    // State management
     const [username, setUsername] = useState('');
     const [askForUsername, setAskForUsername] = useState(true);
     const [localStream, setLocalStream] = useState(null);
@@ -28,11 +30,14 @@ export default function VideoMeetComponent() {
     const [message, setMessage] = useState('');
     const [newMessages, setNewMessages] = useState(0);
     const [copied, setCopied] = useState(false);
+    const [mediaReady, setMediaReady] = useState(false);
 
+    // Refs
     const localVideoRef = useRef();
+    const streamInitializedRef = useRef(false);
     const roomCode = window.location.pathname.substring(1);
 
-    // Get peer connections hook
+    // Hooks - ONLY initialize when username is set
     const {
         videoStreams,
         connectionError,
@@ -44,15 +49,16 @@ export default function VideoMeetComponent() {
         localStream
     );
 
-    // Get screen share hook
     const {
         isScreenSharing,
         startScreenShare,
         stopScreenShare,
     } = useScreenShare(socket, peerConnections, localStream);
 
-    // Initialize media on component mount
+    // Initialize media ONCE on component mount
     useEffect(() => {
+        if (streamInitializedRef.current) return;
+
         const initializeMedia = async () => {
             try {
                 console.log('🎥 Requesting media access...');
@@ -69,7 +75,9 @@ export default function VideoMeetComponent() {
                 });
 
                 console.log('✅ Media access granted');
+                streamInitializedRef.current = true;
                 setLocalStream(stream);
+                setMediaReady(true);
 
                 if (localVideoRef.current) {
                     localVideoRef.current.srcObject = stream;
@@ -82,15 +90,24 @@ export default function VideoMeetComponent() {
 
         initializeMedia();
 
-        // Cleanup
+        // Cleanup ONLY on unmount
         return () => {
-            if (localStream) {
+            console.log('🧹 Component unmounting - cleaning up media');
+            if (localStream && streamInitializedRef.current) {
                 localStream.getTracks().forEach(track => track.stop());
+                streamInitializedRef.current = false;
             }
         };
-    }, []);
+    }, []); // Empty deps - only run once
 
-    // Update local stream when video/audio toggles
+    // Re-attach video element when switching screens (lobby -> meeting)
+    useEffect(() => {
+        if (localVideoRef.current && localStream) {
+            localVideoRef.current.srcObject = localStream;
+        }
+    }, [localStream, askForUsername]);
+
+    // Update track enabled state when toggles change
     useEffect(() => {
         if (!localStream) return;
 
@@ -103,38 +120,41 @@ export default function VideoMeetComponent() {
         });
     }, [video, audio, localStream]);
 
-    // Chat handlers
+    // Chat message handler
     useEffect(() => {
         if (!socket) return;
 
-        socket.on('chat-message', (data, sender, socketIdSender) => {
+        const handleChatMessage = (data, sender, socketIdSender) => {
             setMessages(prev => [...prev, { sender, data }]);
 
             if (socketIdSender !== socket.id) {
                 setNewMessages(prev => prev + 1);
             }
-        });
+        };
 
-        return () => socket.off('chat-message');
+        socket.on('chat-message', handleChatMessage);
+
+        return () => socket.off('chat-message', handleChatMessage);
     }, [socket]);
 
-    const sendMessage = () => {
+    // Event handlers
+    const sendMessage = useCallback(() => {
         if (message.trim() && socket) {
             socket.emit('chat-message', message, username);
             setMessage('');
         }
-    };
+    }, [message, socket, username]);
 
-    const handleKeyPress = (e) => {
+    const handleKeyPress = useCallback((e) => {
         if (e.key === 'Enter') sendMessage();
-    };
+    }, [sendMessage]);
 
-    const handleEndCall = () => {
+    const handleEndCall = useCallback(() => {
         if (localStream) {
             localStream.getTracks().forEach(track => track.stop());
         }
-        window.location.href = '/';
-    };
+        window.location.href = '/home';
+    }, [localStream]);
 
     const handleCopyLink = async () => {
         try {
@@ -146,13 +166,14 @@ export default function VideoMeetComponent() {
         }
     };
 
-    const connect = () => {
+    const connect = useCallback(() => {
         if (username.trim()) {
+            console.log('👤 Joining meeting with username:', username);
             setAskForUsername(false);
         } else {
             alert('Please enter your name');
         }
-    };
+    }, [username]);
 
     const getGridColumns = (count) => {
         if (count <= 1) return 1;
@@ -161,7 +182,8 @@ export default function VideoMeetComponent() {
         return 4;
     };
 
-    // LOBBY SCREEN - Before joining meeting
+
+    // LOBBY SCREEN - Shows before joining meeting
     if (askForUsername) {
         return (
             <div style={{
@@ -173,7 +195,7 @@ export default function VideoMeetComponent() {
                 justifyContent: 'center',
                 overflow: 'hidden'
             }}>
-                {/* Background effects */}
+                {/* Background gradient */}
                 <div style={{
                     position: 'absolute',
                     inset: 0,
@@ -181,6 +203,7 @@ export default function VideoMeetComponent() {
                     zIndex: 0
                 }} />
 
+                {/* Lobby card */}
                 <div style={{
                     position: 'relative',
                     zIndex: 10,
@@ -210,7 +233,7 @@ export default function VideoMeetComponent() {
                         Room: <span style={{ color: '#DC143C', fontWeight: 600 }}>{roomCode}</span>
                     </p>
 
-                    {/* Local video preview */}
+                    {/* Video preview container */}
                     <div style={{
                         position: 'relative',
                         marginBottom: '2rem',
@@ -218,20 +241,43 @@ export default function VideoMeetComponent() {
                         overflow: 'hidden',
                         background: '#000'
                     }}>
-                        <video
-                            ref={localVideoRef}
-                            autoPlay
-                            muted
-                            playsInline
-                            style={{
+                        {!mediaReady ? (
+                            <div style={{
                                 width: '100%',
                                 height: '300px',
-                                objectFit: 'cover',
-                                transform: 'scaleX(-1)'
-                            }}
-                        />
-                        
-                        {/* Controls overlay */}
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexDirection: 'column',
+                                color: 'white',
+                                gap: '1rem'
+                            }}>
+                                <div style={{
+                                    width: '40px',
+                                    height: '40px',
+                                    border: '4px solid rgba(255,255,255,0.3)',
+                                    borderTop: '4px solid white',
+                                    borderRadius: '50%',
+                                    animation: 'spin 1s linear infinite'
+                                }} />
+                                <p>Loading camera...</p>
+                            </div>
+                        ) : (
+                            <video
+                                ref={localVideoRef}
+                                autoPlay
+                                muted
+                                playsInline
+                                style={{
+                                    width: '100%',
+                                    height: '300px',
+                                    objectFit: 'cover',
+                                    transform: 'scaleX(-1)'
+                                }}
+                            />
+                        )}
+
+                        {/* Camera/Mic controls overlay */}
                         <div style={{
                             position: 'absolute',
                             bottom: '15px',
@@ -242,6 +288,7 @@ export default function VideoMeetComponent() {
                         }}>
                             <IconButton
                                 onClick={() => setVideo(!video)}
+                                disabled={!mediaReady}
                                 sx={{
                                     background: video ? 'rgba(255, 255, 255, 0.2)' : 'rgba(220, 20, 60, 0.8)',
                                     color: 'white',
@@ -249,6 +296,9 @@ export default function VideoMeetComponent() {
                                     height: '50px',
                                     '&:hover': {
                                         background: video ? 'rgba(255, 255, 255, 0.3)' : 'rgba(220, 20, 60, 1)',
+                                    },
+                                    '&:disabled': {
+                                        opacity: 0.5
                                     }
                                 }}
                             >
@@ -257,6 +307,7 @@ export default function VideoMeetComponent() {
 
                             <IconButton
                                 onClick={() => setAudio(!audio)}
+                                disabled={!mediaReady}
                                 sx={{
                                     background: audio ? 'rgba(255, 255, 255, 0.2)' : 'rgba(220, 20, 60, 0.8)',
                                     color: 'white',
@@ -264,6 +315,9 @@ export default function VideoMeetComponent() {
                                     height: '50px',
                                     '&:hover': {
                                         background: audio ? 'rgba(255, 255, 255, 0.3)' : 'rgba(220, 20, 60, 1)',
+                                    },
+                                    '&:disabled': {
+                                        opacity: 0.5
                                     }
                                 }}
                             >
@@ -296,11 +350,12 @@ export default function VideoMeetComponent() {
                         }}
                     />
 
+                    {/* Join button */}
                     <Button
                         onClick={connect}
                         variant="contained"
                         fullWidth
-                        disabled={!username.trim()}
+                        disabled={!username.trim() || !mediaReady}
                         sx={{
                             height: '56px',
                             borderRadius: '12px',
@@ -317,7 +372,7 @@ export default function VideoMeetComponent() {
                             }
                         }}
                     >
-                        Join Meeting
+                        {!mediaReady ? 'Loading...' : 'Join Meeting'}
                     </Button>
                 </div>
             </div>
@@ -332,7 +387,7 @@ export default function VideoMeetComponent() {
             background: 'linear-gradient(135deg, #000000 0%, #0a0000 100%)',
             overflow: 'hidden'
         }}>
-            {/* Header with room link */}
+            {/* Header with meeting link */}
             <div style={{
                 position: 'absolute',
                 top: 0,
@@ -391,7 +446,7 @@ export default function VideoMeetComponent() {
                 </div>
             </div>
 
-            {/* Connection Error Alert */}
+            {/* Connection error alert */}
             {connectionError && (
                 <div style={{
                     position: 'absolute',
@@ -409,7 +464,7 @@ export default function VideoMeetComponent() {
                 </div>
             )}
 
-            {/* Video Grid */}
+            {/* Video grid */}
             <div style={{
                 position: 'absolute',
                 top: 70,
@@ -431,11 +486,11 @@ export default function VideoMeetComponent() {
                 ))}
             </div>
 
-            {/* Chat Modal */}
+            {/* Chat modal */}
             {showModal && (
                 <div style={{
                     position: 'absolute',
-                    height: 'calc(100vh - 40px)',
+                    height: 'calc(100vh - 170px)',
                     right: '20px',
                     top: '90px',
                     background: 'rgba(0, 0, 0, 0.95)',
@@ -455,6 +510,7 @@ export default function VideoMeetComponent() {
                         height: '100%',
                         padding: '20px'
                     }}>
+                        {/* Chat header */}
                         <div style={{
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -477,6 +533,7 @@ export default function VideoMeetComponent() {
                             </IconButton>
                         </div>
 
+                        {/* Messages area */}
                         <div style={{
                             flex: 1,
                             overflowY: 'auto',
@@ -513,6 +570,7 @@ export default function VideoMeetComponent() {
                             )}
                         </div>
 
+                        {/* Message input */}
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
                             <TextField
                                 value={message}
@@ -560,7 +618,7 @@ export default function VideoMeetComponent() {
                 </div>
             )}
 
-            {/* Control Buttons */}
+            {/* Control buttons */}
             <div style={{
                 position: 'absolute',
                 width: '100%',
@@ -665,17 +723,29 @@ export default function VideoMeetComponent() {
     );
 }
 
-// VideoTile Component
-const VideoTile = ({ videoData, index }) => {
+// VideoTile Component - Memoized for performance
+const VideoTile = React.memo(({ videoData, index }) => {
     const videoRef = useRef();
     const [isLoaded, setIsLoaded] = useState(false);
 
     useEffect(() => {
         if (videoRef.current && videoData.stream) {
             videoRef.current.srcObject = videoData.stream;
-            setIsLoaded(true);
+
+            const handleLoadedMetadata = () => {
+                console.log('✅ Video loaded for:', videoData.socketId);
+                setIsLoaded(true);
+            };
+
+            videoRef.current.addEventListener('loadedmetadata', handleLoadedMetadata);
+
+            return () => {
+                if (videoRef.current) {
+                    videoRef.current.removeEventListener('loadedmetadata', handleLoadedMetadata);
+                }
+            };
         }
-    }, [videoData.stream]);
+    }, [videoData.stream, videoData.socketId]);
 
     const isScreenShare = videoData.type === 'screen';
     const transform = videoData.isLocal && !isScreenShare ? 'scaleX(-1)' : 'none';
@@ -686,17 +756,18 @@ const VideoTile = ({ videoData, index }) => {
                 position: 'relative',
                 borderRadius: '16px',
                 overflow: 'hidden',
-                boxShadow: isScreenShare 
+                boxShadow: isScreenShare
                     ? '0 0 30px rgba(220, 38, 38, 0.5), 0 10px 40px rgba(0, 0, 0, 0.4)'
                     : '0 10px 30px rgba(0, 0, 0, 0.3)',
-                border: isScreenShare 
-                    ? '3px solid #DC143C' 
+                border: isScreenShare
+                    ? '3px solid #DC143C'
                     : '2px solid rgba(255, 255, 255, 0.1)',
-                background: 'rgba(0, 0, 0, 0.3)',
+                background: 'rgba(0, 0, 0, 0.5)',
                 gridColumn: isScreenShare ? 'span 2' : 'span 1',
                 gridRow: isScreenShare ? 'span 2' : 'span 1',
             }}
         >
+            {/* Loading indicator */}
             {!isLoaded && (
                 <div style={{
                     position: 'absolute',
@@ -704,14 +775,26 @@ const VideoTile = ({ videoData, index }) => {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    background: 'rgba(0, 0, 0, 0.5)',
+                    background: 'rgba(0, 0, 0, 0.7)',
                     color: 'white',
                     zIndex: 1
                 }}>
-                    Loading...
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{
+                            width: '40px',
+                            height: '40px',
+                            border: '4px solid rgba(255,255,255,0.3)',
+                            borderTop: '4px solid white',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite',
+                            margin: '0 auto 10px'
+                        }} />
+                        <p>Loading video...</p>
+                    </div>
                 </div>
             )}
 
+            {/* Video element */}
             <video
                 ref={videoRef}
                 autoPlay
@@ -727,6 +810,7 @@ const VideoTile = ({ videoData, index }) => {
                 }}
             />
 
+            {/* Participant label */}
             <div style={{
                 position: 'absolute',
                 bottom: 10,
@@ -747,6 +831,7 @@ const VideoTile = ({ videoData, index }) => {
                 {videoData.isLocal && ' (You)'}
             </div>
 
+            {/* Screen share badge */}
             {isScreenShare && (
                 <div style={{
                     position: 'absolute',
@@ -767,4 +852,17 @@ const VideoTile = ({ videoData, index }) => {
             )}
         </div>
     );
-};
+});
+
+// Add CSS for spinner animation
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+`;
+if (!document.getElementById('video-meet-styles')) {
+    style.id = 'video-meet-styles';
+    document.head.appendChild(style);
+}
