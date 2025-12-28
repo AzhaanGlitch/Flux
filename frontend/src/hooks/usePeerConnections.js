@@ -15,7 +15,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
     const [videoStreams, setVideoStreams] = useState([]);
     const [connectionError, setConnectionError] = useState(null);
     
-    // REFS
+    // Refs for state that shouldn't trigger re-renders
     const socketRef = useRef(null);
     const peerConnectionsRef = useRef({});
     const pendingCandidatesRef = useRef({});
@@ -23,6 +23,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
     const remoteStreamsRef = useRef({});
     const participantNamesRef = useRef({});
 
+    // Update local stream ref when it changes
     useEffect(() => {
         localStreamRef.current = localStream;
         if (socketRef.current && localStream) {
@@ -32,6 +33,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
     }, [localStream]);
 
+    // Update participant names safely
     const updateParticipantName = useCallback((id, name) => {
         participantNamesRef.current[id] = name;
         setVideoStreams(prev => prev.map(v => {
@@ -45,9 +47,15 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }));
     }, []);
 
+    // Create Peer Connection
     const createPeerConnection = useCallback((socketId) => {
+        // Prevent duplicate connections
+        if (peerConnectionsRef.current[socketId]) {
+            console.log(`⚠️ Connection already exists for ${socketId}`);
+            return peerConnectionsRef.current[socketId];
+        }
+
         console.log(`🔗 Creating peer connection for: ${socketId}`);
-        
         const peerConnection = new RTCPeerConnection(peerConfig);
         peerConnectionsRef.current[socketId] = peerConnection;
 
@@ -55,14 +63,15 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             remoteStreamsRef.current[socketId] = { camera: null, screen: null };
         }
 
+        // Handle Incoming Tracks
         peerConnection.ontrack = (event) => {
             const remoteStream = event.streams[0];
             if (!remoteStream) return;
 
-            // Determine if Screen Share or Camera based on ID diff
             let streamType = 'camera';
             const existingCamera = remoteStreamsRef.current[socketId].camera;
 
+            // Simple Logic: If we already have a camera stream ID, this must be screen
             if (existingCamera && existingCamera.id !== remoteStream.id) {
                 streamType = 'screen';
             }
@@ -77,6 +86,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 const currentName = participantNamesRef.current[socketId] || socketId;
                 const displayName = streamType === 'screen' ? `${currentName}'s Screen` : currentName;
 
+                // Check if this stream is already in the list to avoid flickering
                 const existingIdx = prev.findIndex(v => v.socketId === socketId && v.type === streamType);
 
                 if (existingIdx !== -1) {
@@ -99,8 +109,10 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 }
             });
 
+            // Handle track removal
             event.track.onended = () => {
-                if (remoteStream.getTracks().every(t => t.readyState === 'ended')) {
+                const allEnded = remoteStream.getTracks().every(t => t.readyState === 'ended');
+                if (allEnded) {
                      setVideoStreams(prev => 
                         prev.filter(v => !(v.socketId === socketId && v.type === streamType))
                     );
@@ -110,6 +122,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             };
         };
 
+        // Handle ICE Candidates
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
                 socketRef.current?.emit('signal', socketId, JSON.stringify({
@@ -118,12 +131,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             }
         };
 
-        peerConnection.onconnectionstatechange = () => {
-            if (peerConnection.connectionState === 'failed') {
-                peerConnection.restartIce();
-            }
-        };
-
+        // Add Local Tracks
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => {
                 peerConnection.addTrack(track, localStreamRef.current);
@@ -133,20 +141,27 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         return peerConnection;
     }, []); 
 
+    // Handle Signaling Messages (Offer/Answer/ICE)
     const handleSignal = useCallback(async (fromSocketId, message) => {
         const signal = JSON.parse(message);
+        
+        // Ensure connection exists
         let peerConnection = peerConnectionsRef.current[fromSocketId];
-
         if (!peerConnection) {
+            // Passive connection creation (we received an offer)
             peerConnection = createPeerConnection(fromSocketId);
         }
 
         try {
             if (signal.sdp) {
-                // GUARD CLAUSE: Prevent invalid state errors
+                // GUARD: If we receive an offer but we are already 'stable', it might be a renegotiation or error.
+                // But generally, we just proceed.
+                // The critical guard is stopping collisions before they start (done in user-joined).
+                
+                // If we get an answer but we aren't waiting for one (stable), ignore it to prevent crash.
                 if (signal.sdp.type === 'answer' && peerConnection.signalingState === 'stable') {
-                    console.warn('⚠️ Ignoring remote answer because signaling state is already stable.');
-                    return; 
+                    console.log('⚠️ Ignoring answer, state is already stable.');
+                    return;
                 }
 
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
@@ -159,6 +174,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                     }));
                 }
 
+                // Process queued ICE candidates
                 if (pendingCandidatesRef.current[fromSocketId]) {
                     for (const candidate of pendingCandidatesRef.current[fromSocketId]) {
                         await peerConnection.addIceCandidate(candidate);
@@ -181,9 +197,10 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }
     }, [createPeerConnection]);
 
+    // Main Socket Logic
     useEffect(() => {
         if (!roomCode || !username) return;
-        
+
         socketRef.current = io(server, {
             secure: true,
             reconnection: true,
@@ -194,6 +211,7 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         const socket = socketRef.current;
 
         socket.on('connect', () => {
+            console.log('✅ Connected to server');
             if (localStreamRef.current) {
                 setVideoStreams([{
                     socketId: socket.id,
@@ -210,27 +228,35 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         });
 
         socket.on('signal', handleSignal);
+        socket.on('username', (socketId, name) => updateParticipantName(socketId, name));
 
-        socket.on('username', (socketId, name) => {
-            updateParticipantName(socketId, name);
-        });
-
+        // THE CRITICAL FIX: "ID Tie-Breaker"
         socket.on('user-joined', (joinedSocketId, allParticipants) => {
+            // Iterate through all users in the room
             allParticipants.forEach(async (participantId) => {
-                if (participantId === socket.id) return;
-                if (peerConnectionsRef.current[participantId]) return;
+                if (participantId === socket.id) return; // Don't call myself
 
-                const peerConnection = createPeerConnection(participantId);
-                try {
-                    const offer = await peerConnection.createOffer({
-                        offerToReceiveAudio: true, offerToReceiveVideo: true,
-                    });
-                    await peerConnection.setLocalDescription(offer);
-                    socket.emit('signal', participantId, JSON.stringify({
-                        sdp: peerConnection.localDescription
-                    }));
-                } catch (e) {
-                    console.error('Error creating offer:', e);
+                // Determine who calls whom based on Socket ID
+                // Only the "larger" ID initiates the call.
+                // The "smaller" ID just waits for the offer.
+                if (socket.id > participantId) {
+                    console.log(`📞 I am initiating call to ${participantId} (My ID is larger)`);
+                    
+                    const peerConnection = createPeerConnection(participantId);
+                    try {
+                        const offer = await peerConnection.createOffer({
+                            offerToReceiveAudio: true, 
+                            offerToReceiveVideo: true,
+                        });
+                        await peerConnection.setLocalDescription(offer);
+                        socket.emit('signal', participantId, JSON.stringify({
+                            sdp: peerConnection.localDescription
+                        }));
+                    } catch (e) {
+                        console.error('Error creating offer:', e);
+                    }
+                } else {
+                     console.log(`⏳ Waiting for call from ${participantId} (My ID is smaller)`);
                 }
             });
         });
@@ -242,15 +268,6 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             }
             delete remoteStreamsRef.current[leftSocketId];
             setVideoStreams(prev => prev.filter(v => v.socketId !== leftSocketId));
-        });
-
-        socket.on('screen-share-stopped', (sharerSocketId) => {
-            setVideoStreams(prev => 
-                prev.filter(v => !(v.socketId === sharerSocketId && v.type === 'screen'))
-            );
-            if (remoteStreamsRef.current[sharerSocketId]) {
-                remoteStreamsRef.current[sharerSocketId].screen = null;
-            }
         });
 
         return () => {
