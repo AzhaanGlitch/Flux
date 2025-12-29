@@ -6,6 +6,62 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
     const [screenStream, setScreenStream] = useState(null);
     const screenSendersRef = useRef({}); // Track screen track senders per peer
 
+    // --- MOVED UP: Define stopScreenShare FIRST ---
+    const stopScreenShare = useCallback(async () => {
+        if (!screenStream) {
+            console.log('⚠️ No screen stream to stop');
+            return;
+        }
+
+        console.log('🛑 Stopping screen share...');
+
+        screenStream.getTracks().forEach(track => {
+            track.stop();
+        });
+
+        // Iterate over peers to remove track and renegotiate
+        for (const [socketId, peerConnection] of Object.entries(peerConnections)) {
+            if (!peerConnection || peerConnection.connectionState === 'closed') {
+                continue;
+            }
+
+            const senders = screenSendersRef.current[socketId];
+            if (senders && senders.length > 0) {
+                senders.forEach(sender => {
+                    try {
+                        peerConnection.removeTrack(sender);
+                        console.log(`✅ Removed screen track from peer: ${socketId}`);
+                    } catch (error) {
+                        console.error(`❌ Error removing track from ${socketId}:`, error);
+                    }
+                });
+                delete screenSendersRef.current[socketId];
+
+                // RENEGOTIATE: Send offer to reflect removed track
+                try {
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    socket.emit('signal', socketId, JSON.stringify({
+                        sdp: peerConnection.localDescription
+                    }));
+                    console.log(`📡 Sent stop-share negotiation to ${socketId}`);
+                } catch (err) {
+                    console.error("Renegotiation failed", err);
+                }
+            }
+        }
+
+        if (socket) {
+            socket.emit('screen-share-stopped', socket.id);
+        }
+
+        setScreenStream(null);
+        setIsScreenSharing(false);
+
+        console.log('✅ Screen share stopped successfully');
+    }, [screenStream, peerConnections, socket]);
+
+    // --- MOVED DOWN: Now startScreenShare can safely reference stopScreenShare ---
     const startScreenShare = useCallback(async () => {
         if (!socket || !peerConnections) {
             console.error('❌ Socket or peer connections not ready');
@@ -78,62 +134,9 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
             }
             setIsScreenSharing(false);
         }
-    }, [socket, peerConnections, stopScreenShare]); // Added stopScreenShare to deps
+    }, [socket, peerConnections, stopScreenShare]); // This dependency is now safe
 
-    const stopScreenShare = useCallback(async () => {
-        if (!screenStream) {
-            console.log('⚠️ No screen stream to stop');
-            return;
-        }
-
-        console.log('🛑 Stopping screen share...');
-
-        screenStream.getTracks().forEach(track => {
-            track.stop();
-        });
-
-        // Iterate over peers to remove track and renegotiate
-        for (const [socketId, peerConnection] of Object.entries(peerConnections)) {
-            if (!peerConnection || peerConnection.connectionState === 'closed') {
-                continue;
-            }
-
-            const senders = screenSendersRef.current[socketId];
-            if (senders && senders.length > 0) {
-                senders.forEach(sender => {
-                    try {
-                        peerConnection.removeTrack(sender);
-                        console.log(`✅ Removed screen track from peer: ${socketId}`);
-                    } catch (error) {
-                        console.error(`❌ Error removing track from ${socketId}:`, error);
-                    }
-                });
-                delete screenSendersRef.current[socketId];
-
-                // RENEGOTIATE: Send offer to reflect removed track
-                try {
-                    const offer = await peerConnection.createOffer();
-                    await peerConnection.setLocalDescription(offer);
-                    socket.emit('signal', socketId, JSON.stringify({
-                        sdp: peerConnection.localDescription
-                    }));
-                    console.log(`📡 Sent stop-share negotiation to ${socketId}`);
-                } catch (err) {
-                    console.error("Renegotiation failed", err);
-                }
-            }
-        }
-
-        if (socket) {
-            socket.emit('screen-share-stopped', socket.id);
-        }
-
-        setScreenStream(null);
-        setIsScreenSharing(false);
-
-        console.log('✅ Screen share stopped successfully');
-    }, [screenStream, peerConnections, socket]);
-
+    // Cleanup on unmount
     useEffect(() => {
         return () => {
             if (screenStream) {
