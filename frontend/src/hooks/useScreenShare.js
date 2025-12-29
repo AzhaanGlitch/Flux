@@ -32,13 +32,15 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
             const screenTrack = stream.getVideoTracks()[0];
             screenTrack.contentHint = 'detail';
 
-            Object.entries(peerConnections).forEach(([socketId, peerConnection]) => {
+            // Iterate over all connected peers
+            for (const [socketId, peerConnection] of Object.entries(peerConnections)) {
                 if (!peerConnection || peerConnection.connectionState === 'closed') {
                     console.warn(`⚠️ Skipping closed connection: ${socketId}`);
-                    return;
+                    continue;
                 }
 
                 try {
+                    // 1. Add Track
                     const sender = peerConnection.addTrack(screenTrack, stream);
                     
                     if (!screenSendersRef.current[socketId]) {
@@ -47,10 +49,20 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
                     screenSendersRef.current[socketId].push(sender);
 
                     console.log(`✅ Added screen track to peer: ${socketId}`);
+
+                    // 2. RENEGOTIATE: Create and Send Offer
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    
+                    socket.emit('signal', socketId, JSON.stringify({
+                        sdp: peerConnection.localDescription
+                    }));
+                    console.log(`📡 Sent renegotiation offer to ${socketId}`);
+
                 } catch (error) {
-                    console.error(`❌ Failed to add screen track to ${socketId}:`, error);
+                    console.error(`❌ Failed to add/negotiate screen track to ${socketId}:`, error);
                 }
-            });
+            }
 
             socket.emit('screen-share-started', socket.id);
 
@@ -61,20 +73,14 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
 
         } catch (error) {
             console.error('❌ Screen share error:', error);
-            
-            if (error.name === 'NotAllowedError') {
-                alert('Screen sharing permission denied');
-            } else if (error.name === 'NotFoundError') {
-                alert('No screen available to share');
-            } else {
+            if (error.name !== 'NotAllowedError') {
                 alert('Failed to start screen sharing: ' + error.message);
             }
-            
             setIsScreenSharing(false);
         }
-    }, [socket, peerConnections]);
+    }, [socket, peerConnections, stopScreenShare]); // Added stopScreenShare to deps
 
-    const stopScreenShare = useCallback(() => {
+    const stopScreenShare = useCallback(async () => {
         if (!screenStream) {
             console.log('⚠️ No screen stream to stop');
             return;
@@ -86,9 +92,10 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
             track.stop();
         });
 
-        Object.entries(peerConnections).forEach(([socketId, peerConnection]) => {
+        // Iterate over peers to remove track and renegotiate
+        for (const [socketId, peerConnection] of Object.entries(peerConnections)) {
             if (!peerConnection || peerConnection.connectionState === 'closed') {
-                return;
+                continue;
             }
 
             const senders = screenSendersRef.current[socketId];
@@ -101,10 +108,21 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
                         console.error(`❌ Error removing track from ${socketId}:`, error);
                     }
                 });
-                
                 delete screenSendersRef.current[socketId];
+
+                // RENEGOTIATE: Send offer to reflect removed track
+                try {
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    socket.emit('signal', socketId, JSON.stringify({
+                        sdp: peerConnection.localDescription
+                    }));
+                    console.log(`📡 Sent stop-share negotiation to ${socketId}`);
+                } catch (err) {
+                    console.error("Renegotiation failed", err);
+                }
             }
-        });
+        }
 
         if (socket) {
             socket.emit('screen-share-stopped', socket.id);
@@ -116,7 +134,6 @@ export const useScreenShare = (socket, peerConnections, localStream) => {
         console.log('✅ Screen share stopped successfully');
     }, [screenStream, peerConnections, socket]);
 
-    // Cleanup on unmount - FIXED: Removed "React." prefix
     useEffect(() => {
         return () => {
             if (screenStream) {
