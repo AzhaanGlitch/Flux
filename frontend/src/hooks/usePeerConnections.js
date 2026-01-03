@@ -77,10 +77,10 @@ export const usePeerConnections = (roomCode, username, localStream) => {
         }));
     }, []);
 
-    // frontend/src/hooks/usePeerConnections.js - FIXED VERSION (Part 2)
+// frontend/src/hooks/usePeerConnections.js - DESKTOP FIX (Replace Part 2)
 // Continue from Part 1...
 
-    // CRITICAL FIX: Improved peer connection creation
+    // CRITICAL FIX: Desktop-compatible peer connection creation
     const createPeerConnection = useCallback((socketId, isInitiator = false) => {
         if (peerConnectionsRef.current[socketId]) {
             console.warn(`⚠️ Connection already exists for ${socketId}`);
@@ -96,9 +96,22 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             remoteStreamsRef.current[socketId] = { camera: null, screen: null };
         }
 
-        // CRITICAL FIX: Better track handling
+        // DESKTOP FIX: Enhanced track handling with stream validation
         peerConnection.ontrack = (event) => {
-            console.log(`🎥 Track received from ${socketId}:`, event.track.kind, event.track.id);
+            console.log(`🎥 Track received from ${socketId}:`, {
+                kind: event.track.kind,
+                id: event.track.id,
+                readyState: event.track.readyState,
+                muted: event.track.muted,
+                enabled: event.track.enabled,
+                streams: event.streams.length
+            });
+
+            // CRITICAL: Validate track is actually usable
+            if (event.track.readyState === 'ended') {
+                console.warn('⚠️ Received ended track, ignoring');
+                return;
+            }
 
             const remoteStream = event.streams[0];
             if (!remoteStream) {
@@ -106,11 +119,28 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 return;
             }
 
-            // Determine stream type based on track count and existing streams
+            // Wait for stream to be fully ready (critical for desktop)
+            const ensureStreamReady = () => {
+                const tracks = remoteStream.getTracks();
+                const allReady = tracks.every(t => t.readyState === 'live' && t.enabled);
+                
+                console.log(`📊 Stream readiness check:`, {
+                    streamId: remoteStream.id,
+                    tracks: tracks.map(t => ({
+                        kind: t.kind,
+                        ready: t.readyState,
+                        enabled: t.enabled
+                    })),
+                    allReady
+                });
+
+                return allReady;
+            };
+
+            // Determine stream type
             let streamType = 'camera';
             const existingCamera = remoteStreamsRef.current[socketId].camera;
 
-            // If we have a camera stream and this is a different stream, it's screen share
             if (existingCamera && existingCamera.id !== remoteStream.id) {
                 streamType = 'screen';
             }
@@ -122,41 +152,53 @@ export const usePeerConnections = (roomCode, username, localStream) => {
                 remoteStreamsRef.current[socketId].screen = remoteStream;
             }
 
-            // Update state with proper naming
-            setVideoStreams(prev => {
-                const currentName = participantNamesRef.current[socketId] || socketId;
-                const displayName = streamType === 'screen' ? `${currentName}'s Screen` : currentName;
-
-                const existingIdx = prev.findIndex(v => 
-                    v.socketId === socketId && v.type === streamType
-                );
-                
-                if (existingIdx !== -1) {
-                    const updated = [...prev];
-                    updated[existingIdx] = {
-                        ...updated[existingIdx],
-                        stream: remoteStream,
-                        name: displayName
-                    };
-                    console.log(`🔄 Updated existing ${streamType} stream for ${socketId}`);
-                    return updated;
-                } else {
-                    console.log(`➕ Added new ${streamType} stream for ${socketId}`);
-                    return [...prev, {
-                        socketId,
-                        stream: remoteStream,
-                        type: streamType,
-                        name: displayName,
-                        isLocal: false,
-                        timestamp: Date.now(),
-                    }];
+            // DESKTOP FIX: Ensure stream is ready before updating UI
+            const updateStreamInUI = () => {
+                if (!ensureStreamReady()) {
+                    console.log('⏳ Waiting for stream to be ready...');
+                    setTimeout(updateStreamInUI, 100);
+                    return;
                 }
-            });
 
-            // Clean up when all tracks end
+                setVideoStreams(prev => {
+                    const currentName = participantNamesRef.current[socketId] || socketId;
+                    const displayName = streamType === 'screen' ? `${currentName}'s Screen` : currentName;
+
+                    const existingIdx = prev.findIndex(v => 
+                        v.socketId === socketId && v.type === streamType
+                    );
+                    
+                    if (existingIdx !== -1) {
+                        const updated = [...prev];
+                        updated[existingIdx] = {
+                            ...updated[existingIdx],
+                            stream: remoteStream,
+                            name: displayName,
+                            timestamp: Date.now() // Force re-render
+                        };
+                        console.log(`✅ Updated ${streamType} stream for ${socketId}`);
+                        return updated;
+                    } else {
+                        console.log(`✅ Added new ${streamType} stream for ${socketId}`);
+                        return [...prev, {
+                            socketId,
+                            stream: remoteStream,
+                            type: streamType,
+                            name: displayName,
+                            isLocal: false,
+                            timestamp: Date.now(),
+                        }];
+                    }
+                });
+            };
+
+            // Start readiness check
+            updateStreamInUI();
+
+            // Track cleanup
             remoteStream.getTracks().forEach(track => {
                 track.onended = () => {
-                    console.log(`🛑 Track ended for ${socketId} (${streamType})`);
+                    console.log(`🛑 Track ended: ${socketId} (${streamType})`);
                     if (remoteStream.getTracks().every(t => t.readyState === 'ended')) {
                         setVideoStreams(prev => 
                             prev.filter(v => !(v.socketId === socketId && v.type === streamType))
@@ -171,107 +213,190 @@ export const usePeerConnections = (roomCode, username, localStream) => {
             });
         };
 
-        // ICE candidates
+        // DESKTOP FIX: Enhanced ICE candidate handling
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
+                console.log(`🧊 Sending ICE candidate to ${socketId}:`, event.candidate.type);
                 socketRef.current?.emit('signal', socketId, JSON.stringify({
                     ice: event.candidate
                 }));
+            } else {
+                console.log(`✅ ICE gathering complete for ${socketId}`);
             }
         };
 
-        // Connection state monitoring
+        // DESKTOP FIX: Better connection state monitoring
         peerConnection.onconnectionstatechange = () => {
-            console.log(`📶 ${socketId}: ${peerConnection.connectionState}`);
+            const state = peerConnection.connectionState;
+            console.log(`📶 ${socketId}: ${state}`);
             
-            if (peerConnection.connectionState === 'failed') {
-                console.warn('⚠️ Connection failed, attempting restart...');
-                peerConnection.restartIce();
-            } else if (peerConnection.connectionState === 'disconnected') {
-                console.warn('⚠️ Connection disconnected');
+            switch (state) {
+                case 'connected':
+                    console.log(`✅ Successfully connected to ${socketId}`);
+                    break;
+                case 'disconnected':
+                    console.warn(`⚠️ Disconnected from ${socketId}, waiting for reconnection...`);
+                    break;
+                case 'failed':
+                    console.error(`❌ Connection failed for ${socketId}, restarting ICE...`);
+                    peerConnection.restartIce();
+                    break;
+                case 'closed':
+                    console.log(`🔒 Connection closed for ${socketId}`);
+                    break;
             }
         };
 
-        // CRITICAL FIX: Add all local tracks immediately
+        // DESKTOP FIX: Monitor ICE connection state separately
+        peerConnection.oniceconnectionstatechange = () => {
+            console.log(`🧊 ICE state for ${socketId}: ${peerConnection.iceConnectionState}`);
+            
+            if (peerConnection.iceConnectionState === 'failed') {
+                console.error(`❌ ICE failed for ${socketId}, attempting recovery...`);
+                peerConnection.restartIce();
+            }
+        };
+
+        // CRITICAL: Add tracks BEFORE any negotiation
         if (localStreamRef.current) {
-            console.log(`📤 Adding local tracks to ${socketId}`);
+            console.log(`📤 Adding local tracks to ${socketId}...`);
+            const tracksAdded = [];
+            
             localStreamRef.current.getTracks().forEach(track => {
                 try {
-                    peerConnection.addTrack(track, localStreamRef.current);
-                    console.log(`✅ Added ${track.kind} track`);
+                    // Ensure track is active
+                    if (track.readyState === 'live') {
+                        const sender = peerConnection.addTrack(track, localStreamRef.current);
+                        tracksAdded.push({
+                            kind: track.kind,
+                            id: track.id,
+                            enabled: track.enabled
+                        });
+                        console.log(`✅ Added ${track.kind} track (${track.id})`);
+                    } else {
+                        console.warn(`⚠️ Skipping ${track.kind} track - not live`);
+                    }
                 } catch (error) {
                     console.error(`❌ Failed to add ${track.kind} track:`, error);
                 }
             });
+
+            console.log(`📊 Total tracks added to ${socketId}:`, tracksAdded);
         } else {
-            console.warn('⚠️ No local stream available when creating peer connection');
+            console.error('❌ No local stream available when creating peer connection!');
         }
 
         return peerConnection;
     }, []);
 
-    // frontend/src/hooks/usePeerConnections.js - FIXED VERSION (Part 3)
-// Continue from Part 2...
 
-    // CRITICAL FIX: Improved signaling with better state management
+// frontend/src/hooks/usePeerConnections.js - DESKTOP FIX (Replace Part 3)
+// Continue from improved Part 2...
+
+    // DESKTOP FIX: Robust signaling with proper state machine
     const handleSignal = useCallback(async (fromSocketId, message) => {
-        const signal = JSON.parse(message);
+        let signal;
+        try {
+            signal = JSON.parse(message);
+        } catch (e) {
+            console.error('❌ Failed to parse signal:', e);
+            return;
+        }
+
         let peerConnection = peerConnectionsRef.current[fromSocketId];
 
         try {
             if (signal.sdp) {
-                console.log(`📩 Received ${signal.sdp.type} from ${fromSocketId}`);
+                const sdpType = signal.sdp.type;
+                console.log(`📩 Received ${sdpType} from ${fromSocketId}`);
 
-                // Create connection if it doesn't exist (receiving initial offer)
+                // Create connection if needed (receiving initial offer)
                 if (!peerConnection) {
+                    console.log(`🆕 Creating new connection for incoming ${sdpType}`);
                     peerConnection = createPeerConnection(fromSocketId, false);
                 }
 
                 const currentState = peerConnection.signalingState;
-                console.log(`Current signaling state: ${currentState}`);
+                console.log(`📊 Current signaling state: ${currentState}`);
 
-                // Handle different signaling states
-                if (signal.sdp.type === 'offer') {
-                    // Always process offers (handles renegotiation)
-                    await peerConnection.setRemoteDescription(
-                        new RTCSessionDescription(signal.sdp)
-                    );
-                    
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    
-                    socketRef.current?.emit('signal', fromSocketId, JSON.stringify({
-                        sdp: peerConnection.localDescription
-                    }));
-                    console.log(`📤 Sent ANSWER to ${fromSocketId}`);
-
-                } else if (signal.sdp.type === 'answer') {
-                    // Only set answer if we're in the right state
-                    if (currentState === 'have-local-offer') {
+                if (sdpType === 'offer') {
+                    // DESKTOP FIX: Handle offer with proper state checking
+                    if (currentState === 'stable' || currentState === 'have-remote-offer') {
+                        console.log(`✅ Processing offer in state: ${currentState}`);
+                        
                         await peerConnection.setRemoteDescription(
                             new RTCSessionDescription(signal.sdp)
                         );
-                        console.log(`✅ Set remote answer for ${fromSocketId}`);
+                        
+                        console.log(`✅ Remote description set, creating answer...`);
+                        
+                        // CRITICAL: Use proper constraints for desktop
+                        const answer = await peerConnection.createAnswer({
+                            offerToReceiveAudio: true,
+                            offerToReceiveVideo: true
+                        });
+                        
+                        await peerConnection.setLocalDescription(answer);
+                        
+                        socketRef.current?.emit('signal', fromSocketId, JSON.stringify({
+                            sdp: peerConnection.localDescription
+                        }));
+                        
+                        console.log(`📤 Sent ANSWER to ${fromSocketId}`);
                     } else {
-                        console.warn(`⚠️ Ignoring answer, wrong state: ${currentState}`);
+                        console.warn(`⚠️ Cannot process offer in state: ${currentState}`);
+                        
+                        // If in wrong state, try rollback and retry
+                        if (currentState === 'have-local-offer') {
+                            console.log('🔄 Attempting rollback and retry...');
+                            try {
+                                await peerConnection.setLocalDescription({type: 'rollback'});
+                                // Recursive retry
+                                setTimeout(() => handleSignal(fromSocketId, message), 100);
+                            } catch (rollbackError) {
+                                console.error('❌ Rollback failed:', rollbackError);
+                            }
+                        }
+                    }
+
+                } else if (sdpType === 'answer') {
+                    // DESKTOP FIX: Only accept answer in correct state
+                    if (currentState === 'have-local-offer') {
+                        console.log(`✅ Processing answer in state: ${currentState}`);
+                        
+                        await peerConnection.setRemoteDescription(
+                            new RTCSessionDescription(signal.sdp)
+                        );
+                        
+                        console.log(`✅ Answer accepted for ${fromSocketId}`);
+                    } else {
+                        console.warn(`⚠️ Ignoring answer in wrong state: ${currentState}`);
                     }
                 }
 
-                // Process any queued ICE candidates
-                if (pendingCandidatesRef.current[fromSocketId]?.length) {
-                    console.log(`📦 Processing ${pendingCandidatesRef.current[fromSocketId].length} queued candidates`);
-                    for (const candidate of pendingCandidatesRef.current[fromSocketId]) {
+                // DESKTOP FIX: Process pending ICE candidates with error handling
+                const pendingCandidates = pendingCandidatesRef.current[fromSocketId];
+                if (pendingCandidates?.length) {
+                    console.log(`📦 Processing ${pendingCandidates.length} queued ICE candidates`);
+                    
+                    for (const candidate of pendingCandidates) {
                         try {
-                            await peerConnection.addIceCandidate(candidate);
+                            if (peerConnection.remoteDescription) {
+                                await peerConnection.addIceCandidate(candidate);
+                                console.log(`✅ Added queued ICE candidate`);
+                            } else {
+                                console.warn('⚠️ Cannot add candidate - no remote description');
+                            }
                         } catch (e) {
-                            console.error("Error adding queued candidate:", e);
+                            // Desktop browsers can be strict about ICE candidate errors
+                            console.warn("⚠️ Error adding queued candidate (non-fatal):", e.message);
                         }
                     }
                     delete pendingCandidatesRef.current[fromSocketId];
                 }
 
             } else if (signal.ice) {
-                // Handle ICE candidate
+                // DESKTOP FIX: Robust ICE candidate handling
                 if (!peerConnection) {
                     console.warn(`⚠️ Received ICE but no peer connection for ${fromSocketId}`);
                     return;
@@ -279,31 +404,79 @@ export const usePeerConnections = (roomCode, username, localStream) => {
 
                 const candidate = new RTCIceCandidate(signal.ice);
                 
-                if (peerConnection.remoteDescription) {
-                    await peerConnection.addIceCandidate(candidate);
+                console.log(`🧊 Received ICE candidate:`, {
+                    type: candidate.type,
+                    protocol: candidate.protocol,
+                    address: candidate.address
+                });
+                
+                if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+                    try {
+                        await peerConnection.addIceCandidate(candidate);
+                        console.log(`✅ Added ICE candidate for ${fromSocketId}`);
+                    } catch (e) {
+                        // Desktop browsers may reject invalid candidates
+                        console.warn(`⚠️ ICE candidate rejected (non-fatal):`, e.message);
+                    }
                 } else {
-                    // Queue if remote description not set yet
+                    // Queue for later
                     if (!pendingCandidatesRef.current[fromSocketId]) {
                         pendingCandidatesRef.current[fromSocketId] = [];
                     }
                     pendingCandidatesRef.current[fromSocketId].push(candidate);
-                    console.log(`📦 Queued ICE candidate for ${fromSocketId}`);
+                    console.log(`📦 Queued ICE candidate (no remote description yet)`);
                 }
             }
         } catch (error) {
-            console.error(`❌ Signal error from ${fromSocketId}:`, error);
+            console.error(`❌ Critical signal error from ${fromSocketId}:`, error);
             
-            // If connection is in a bad state, recreate it
-            if (peerConnection && 
-                (peerConnection.signalingState === 'closed' || 
-                 peerConnection.connectionState === 'failed')) {
-                console.log('🔄 Recreating failed connection...');
-                delete peerConnectionsRef.current[fromSocketId];
-                createPeerConnection(fromSocketId, false);
+            // DESKTOP FIX: More aggressive recovery for desktop browsers
+            if (peerConnection) {
+                const state = peerConnection.signalingState;
+                const connState = peerConnection.connectionState;
+                
+                console.log(`🔍 Error state: signaling=${state}, connection=${connState}`);
+                
+                if (state === 'closed' || connState === 'failed' || connState === 'closed') {
+                    console.log('🔄 Connection in bad state, recreating...');
+                    
+                    // Clean up old connection
+                    try {
+                        peerConnection.close();
+                    } catch (e) {
+                        console.warn('Error closing bad connection:', e);
+                    }
+                    
+                    delete peerConnectionsRef.current[fromSocketId];
+                    delete pendingCandidatesRef.current[fromSocketId];
+                    
+                    // Create new connection
+                    const newPc = createPeerConnection(fromSocketId, false);
+                    
+                    // If we were the initiator, restart negotiation
+                    if (isInitiatorRef.current[fromSocketId]) {
+                        console.log('🔄 Restarting negotiation as initiator...');
+                        setTimeout(async () => {
+                            try {
+                                const offer = await newPc.createOffer({
+                                    offerToReceiveAudio: true,
+                                    offerToReceiveVideo: true,
+                                });
+                                await newPc.setLocalDescription(offer);
+                                socketRef.current?.emit('signal', fromSocketId, JSON.stringify({
+                                    sdp: newPc.localDescription
+                                }));
+                            } catch (e) {
+                                console.error('Failed to restart negotiation:', e);
+                            }
+                        }, 1000);
+                    }
+                }
             }
         }
     }, [createPeerConnection]);
 
+    
     // frontend/src/hooks/usePeerConnections.js - FIXED VERSION (Part 4 - FINAL)
 // Continue from Part 3...
 
