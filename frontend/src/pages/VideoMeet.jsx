@@ -18,64 +18,165 @@ import { useNavigate } from 'react-router-dom';
 import { usePeerConnections } from '../hooks/usePeerConnections';
 import { useScreenShare } from '../hooks/useScreenShare';
 
-// --- VideoTile Component (Unchanged logic, just ensuring it renders) ---
+// In VideoMeet.jsx 
+
 const VideoTile = React.memo(({ videoData, isSmall }) => {
     const videoRef = useRef(null);
     const [isLoaded, setIsLoaded] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
+    const [retryCount, setRetryCount] = useState(0);
 
+    // DESKTOP FIX: Robust video element setup
     useEffect(() => {
         const videoElement = videoRef.current;
-        if (!videoElement || !videoData.stream) return;
+        if (!videoElement || !videoData.stream) {
+            console.log('⏳ Waiting for video element or stream...');
+            return;
+        }
 
+        console.log(`🎬 Setting up video for ${videoData.socketId}:`, {
+            streamId: videoData.stream.id,
+            tracks: videoData.stream.getTracks().map(t => ({
+                kind: t.kind,
+                enabled: t.enabled,
+                readyState: t.readyState
+            }))
+        });
+
+        // CRITICAL: Ensure stream has active tracks
+        const activeTracks = videoData.stream.getTracks().filter(t => 
+            t.readyState === 'live' && t.enabled
+        );
+
+        if (activeTracks.length === 0) {
+            console.warn(`⚠️ No active tracks for ${videoData.socketId}`);
+            return;
+        }
+
+        // DESKTOP FIX: Set srcObject and configure element
         videoElement.srcObject = videoData.stream;
-        // Important: Ensure proper property settings
         videoElement.autoplay = true;
         videoElement.playsInline = true;
         videoElement.muted = videoData.isLocal; // Mute local to avoid feedback
 
-        const attemptPlay = async () => {
+        // DESKTOP FIX: Multiple play attempts with retry logic
+        const attemptPlay = async (attempt = 0) => {
             try {
+                // Clear any previous errors
+                videoElement.load();
+                
+                console.log(`▶️ Attempt ${attempt + 1} to play ${videoData.socketId}`);
                 await videoElement.play();
+                
+                console.log(`✅ Video playing for ${videoData.socketId}`);
                 setIsLoaded(true);
-            } catch (e) {
-                console.warn("Autoplay blocked/failed", e);
+                setRetryCount(0);
+                
+            } catch (error) {
+                console.warn(`⚠️ Play attempt ${attempt + 1} failed for ${videoData.socketId}:`, error.name);
+                
+                if (attempt < 5) {
+                    // Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms
+                    const delay = 100 * Math.pow(2, attempt);
+                    console.log(`⏳ Retrying in ${delay}ms...`);
+                    
+                    setTimeout(() => {
+                        setRetryCount(attempt + 1);
+                        attemptPlay(attempt + 1);
+                    }, delay);
+                } else {
+                    console.error(`❌ Failed to play video after ${attempt + 1} attempts`);
+                    setIsLoaded(false);
+                }
             }
         };
-        attemptPlay();
-    }, [videoData.stream, videoData.isLocal]);
 
-    // Audio Level (Simplified for stability)
+        // DESKTOP FIX: Wait for stream to be fully ready
+        const checkAndPlay = () => {
+            const tracks = videoData.stream.getTracks();
+            const allReady = tracks.every(t => t.readyState === 'live');
+            
+            if (allReady) {
+                console.log(`✅ All tracks ready for ${videoData.socketId}, attempting play`);
+                attemptPlay();
+            } else {
+                console.log(`⏳ Waiting for tracks to be ready...`);
+                setTimeout(checkAndPlay, 100);
+            }
+        };
+
+        checkAndPlay();
+
+        // DESKTOP FIX: Handle track events
+        const handleTrackEnded = () => {
+            console.log(`🛑 Track ended for ${videoData.socketId}`);
+            setIsLoaded(false);
+        };
+
+        videoData.stream.getTracks().forEach(track => {
+            track.addEventListener('ended', handleTrackEnded);
+        });
+
+        // Cleanup
+        return () => {
+            console.log(`🧹 Cleaning up video for ${videoData.socketId}`);
+            videoData.stream.getTracks().forEach(track => {
+                track.removeEventListener('ended', handleTrackEnded);
+            });
+            
+            if (videoElement.srcObject) {
+                videoElement.srcObject = null;
+            }
+        };
+    }, [videoData.stream, videoData.socketId, videoData.isLocal, retryCount]);
+
+    // Audio level detection (simplified for stability)
     useEffect(() => {
         if (!videoData.stream || videoData.isLocal || videoData.type === 'screen') return;
         
         let audioContext, analyser, animationId;
+        
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             audioContext = new AudioContext();
             analyser = audioContext.createAnalyser();
+            
+            const audioTracks = videoData.stream.getAudioTracks();
+            if (audioTracks.length === 0) {
+                console.log(`ℹ️ No audio tracks for ${videoData.socketId}`);
+                return;
+            }
+            
             const source = audioContext.createMediaStreamSource(videoData.stream);
             source.connect(analyser);
+            
             analyser.fftSize = 256;
+            analyser.smoothingTimeConstant = 0.8;
+            
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
             const detectVolume = () => {
                 analyser.getByteFrequencyData(dataArray);
                 const volume = dataArray.reduce((a, b) => a + b) / dataArray.length;
-                setIsSpeaking(volume > 10);
+                setIsSpeaking(volume > 15);
                 animationId = requestAnimationFrame(detectVolume);
             };
+            
             detectVolume();
-        } catch (e) { console.error(e); }
+            
+        } catch (error) {
+            console.warn('Audio analysis not available:', error);
+        }
 
         return () => {
-            if(animationId) cancelAnimationFrame(animationId);
-            if(audioContext && audioContext.state !== 'closed') audioContext.close();
-        }
-    }, [videoData.stream, videoData.isLocal, videoData.type]);
+            if (animationId) cancelAnimationFrame(animationId);
+            if (audioContext && audioContext.state !== 'closed') {
+                audioContext.close().catch(e => console.warn('Error closing audio context:', e));
+            }
+        };
+    }, [videoData.stream, videoData.isLocal, videoData.type, videoData.socketId]);
 
     const isScreenShare = videoData.type === 'screen';
-    // Mirror local camera, do not mirror screen share
     const transform = videoData.isLocal && !isScreenShare ? 'scaleX(-1)' : 'none';
 
     return (
@@ -85,22 +186,51 @@ const VideoTile = React.memo(({ videoData, isSmall }) => {
             height: '100%', 
             borderRadius: '12px', 
             overflow: 'hidden', 
-            backgroundColor: '#222',
+            backgroundColor: '#000',
             border: isSpeaking ? '2px solid #10b981' : '1px solid rgba(255, 255, 255, 0.1)',
             boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
         }}>
+            {!isLoaded && (
+                <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: '#1a1a1a',
+                    color: '#666',
+                    fontSize: '0.9rem'
+                }}>
+                    Loading video{retryCount > 0 ? ` (attempt ${retryCount + 1})` : ''}...
+                </div>
+            )}
+            
             <video
                 ref={videoRef}
                 autoPlay
                 playsInline
                 muted={videoData.isLocal}
-                style={{ width: '100%', height: '100%', objectFit: isScreenShare ? 'contain' : 'cover', transform, background: 'black' }}
+                style={{ 
+                    width: '100%', 
+                    height: '100%', 
+                    objectFit: isScreenShare ? 'contain' : 'cover', 
+                    transform, 
+                    background: 'black',
+                    display: isLoaded ? 'block' : 'none'
+                }}
             />
+            
             <div style={{ 
-                position: 'absolute', bottom: 8, left: 8, 
-                background: 'rgba(0,0,0,0.6)', padding: '4px 10px', 
-                borderRadius: '8px', color: 'white', fontSize: isSmall ? '0.7rem' : '0.9rem', 
-                pointerEvents: 'none' 
+                position: 'absolute', 
+                bottom: 8, 
+                left: 8, 
+                background: 'rgba(0,0,0,0.7)', 
+                padding: '4px 10px', 
+                borderRadius: '8px', 
+                color: 'white', 
+                fontSize: isSmall ? '0.7rem' : '0.9rem', 
+                pointerEvents: 'none',
+                backdropFilter: 'blur(5px)'
             }}>
                 {isScreenShare ? '🖥️ ' : ''}{videoData.name || 'Unknown'} {videoData.isLocal && '(You)'}
             </div>
