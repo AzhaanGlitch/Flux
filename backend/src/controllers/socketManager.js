@@ -1,10 +1,10 @@
-// backend/src/controllers/socketManager.js (Updated)
+// backend/src/controllers/socketManager.js - FIXED VERSION
 import { Server } from "socket.io";
 
 let connections = {};
 let messages = {};
 let timeOnline = {};
-let participantNames = {}; // NEW: Store usernames
+let participantNames = {};
 
 export const connectToSocket = (server) => {
     const io = new Server(server, {
@@ -25,15 +25,20 @@ export const connectToSocket = (server) => {
             if (connections[path] === undefined) {
                 connections[path] = [];
             }
+            
             connections[path].push(socket.id);
             timeOnline[socket.id] = new Date();
 
-            // Notify all participants in the room
+            console.log(`👤 ${socket.id} joined room: ${path}`);
+            console.log(`📊 Room ${path} now has ${connections[path].length} participants:`, connections[path]);
+
+            // CRITICAL FIX: Notify ALL participants (including new joiner)
+            // This ensures everyone knows about everyone else
             for (let i = 0; i < connections[path].length; i++) {
                 io.to(connections[path][i]).emit(
                     "user-joined", 
                     socket.id, 
-                    connections[path]
+                    connections[path] // Send full list
                 );
             }
 
@@ -48,11 +53,8 @@ export const connectToSocket = (server) => {
                     );
                 }
             }
-
-            console.log(`👤 ${socket.id} joined room: ${path}. Total: ${connections[path].length}`);
         });
 
-        // NEW: Handle username broadcasts
         socket.on("username", (username) => {
             participantNames[socket.id] = username;
             console.log(`📝 Username set: ${socket.id} = ${username}`);
@@ -70,7 +72,9 @@ export const connectToSocket = (server) => {
             }
         });
 
+        // CRITICAL FIX: Direct signal relay without modification
         socket.on("signal", (toId, message) => {
+            console.log(`📡 Relaying signal from ${socket.id} to ${toId}`);
             io.to(toId).emit("signal", socket.id, message);
         });
 
@@ -94,17 +98,17 @@ export const connectToSocket = (server) => {
                     "socket-id-sender": socket.id
                 });
 
+                console.log(`💬 Chat message in ${matchingRoom} from ${sender}: ${data.substring(0, 50)}...`);
+
                 connections[matchingRoom].forEach((elem) => {
                     io.to(elem).emit("chat-message", data, sender, socket.id);
                 });
             }
         });
 
-        // NEW: Screen share events
         socket.on("screen-share-started", (sharerSocketId) => {
             console.log(`🖥️ Screen share started: ${sharerSocketId}`);
             
-            // Find room and broadcast to all participants
             const room = Object.keys(connections).find(key => 
                 connections[key].includes(socket.id)
             );
@@ -137,8 +141,8 @@ export const connectToSocket = (server) => {
         socket.on("disconnect", () => {
             console.log(`👋 SOCKET DISCONNECTED: ${socket.id}`);
             
-            const diffTime = Math.abs(timeOnline[socket.id] - new Date());
             delete participantNames[socket.id];
+            delete timeOnline[socket.id];
 
             for (const [roomKey, roomValue] of Object.entries(connections)) {
                 const index = roomValue.indexOf(socket.id);
@@ -146,16 +150,21 @@ export const connectToSocket = (server) => {
                 if (index !== -1) {
                     // Notify all other participants
                     for (let i = 0; i < connections[roomKey].length; i++) {
-                        io.to(connections[roomKey][i]).emit('user-left', socket.id);
+                        if (connections[roomKey][i] !== socket.id) {
+                            io.to(connections[roomKey][i]).emit('user-left', socket.id);
+                        }
                     }
 
                     // Remove from room
                     connections[roomKey].splice(index, 1);
 
+                    console.log(`📊 Room ${roomKey} now has ${connections[roomKey].length} participants`);
+
                     // Clean up empty rooms
                     if (connections[roomKey].length === 0) {
                         delete connections[roomKey];
                         delete messages[roomKey];
+                        console.log(`🗑️ Deleted empty room: ${roomKey}`);
                     }
                     
                     break;
