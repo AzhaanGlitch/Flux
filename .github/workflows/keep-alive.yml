@@ -21,10 +21,10 @@ jobs:
           
           echo "Response code: $RESPONSE"
           
-          if [ $RESPONSE -eq 200 ]; then
-            echo "✓ Server is alive"
+          if [ "$RESPONSE" -eq 200 ]; then
+            echo "✅ Server is alive"
           else
-            echo "⚠ Server returned unexpected status: $RESPONSE"
+            echo "⚠️ Server returned unexpected status: $RESPONSE"
             exit 1
           fi
       
